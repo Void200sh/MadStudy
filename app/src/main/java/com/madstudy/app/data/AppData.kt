@@ -70,6 +70,7 @@ data class Settings(
 data class AppState(
     val theme: String = "sage",
     val lastBackup: String = "",
+    val focusTaskId: String? = null,
     val settings: Settings = Settings(),
     val tasks: List<Task> = emptyList(),
     val sessions: List<Session> = emptyList(),
@@ -145,8 +146,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         set(_state.value.copy(tasks = _state.value.tasks.map { if (it.id == id) it.copy(done = !it.done) else it }))
     }
 
+    fun completeTask(id: String) {
+        val s = _state.value
+        set(
+            s.copy(
+                tasks = s.tasks.map { if (it.id == id) it.copy(done = true) else it },
+                focusTaskId = if (s.focusTaskId == id) null else s.focusTaskId
+            )
+        )
+    }
+
+    fun selectFocusTask(id: String?) {
+        set(_state.value.copy(focusTaskId = id))
+    }
+
     fun deleteTask(id: String) {
-        set(_state.value.copy(tasks = _state.value.tasks.filterNot { it.id == id }))
+        val s = _state.value
+        set(
+            s.copy(
+                tasks = s.tasks.filterNot { it.id == id },
+                focusTaskId = if (s.focusTaskId == id) null else s.focusTaskId
+            )
+        )
     }
 
     fun addJournal(title: String, body: String) {

@@ -120,6 +120,7 @@ fun MadStudyApp(vm: AppViewModel) {
                         TasksScreen(
                             state = state,
                             onToggle = vm::toggleTask,
+                            onComplete = vm::completeTask,
                             onDelete = vm::deleteTask,
                             onAdd = vm::addTask
                         )
@@ -133,6 +134,8 @@ fun MadStudyApp(vm: AppViewModel) {
                             onReset = vm::resetTimer,
                             onPreset = vm::setPreset,
                             onFinish = vm::finishEarly,
+                            onSelectTask = vm::selectFocusTask,
+                            onCompleteTask = vm::completeTask,
                             onOpenTasks = { nav.navigate("tasks") },
                             onOpenMusic = { nav.navigate("music") }
                         )

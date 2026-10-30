@@ -32,6 +32,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Pause
@@ -77,6 +79,7 @@ import com.madstudy.app.data.streak
 import com.madstudy.app.data.todayMin
 import com.madstudy.app.data.todaySessions
 import com.madstudy.app.mmss
+import com.madstudy.app.ui.ActionPill
 import com.madstudy.app.ui.AppCard
 import com.madstudy.app.ui.AppSheet
 import com.madstudy.app.ui.CheckCircle
@@ -275,7 +278,7 @@ private fun Modifier.border1(p: com.madstudy.app.ui.Palette): Modifier =
     this.border(1.dp, p.line, RoundedCornerShape(18.dp))
 
 @Composable
-fun TaskCard(task: Task, onToggle: () -> Unit, onDelete: (() -> Unit)?) {
+fun TaskCard(task: Task, onToggle: () -> Unit, onDelete: (() -> Unit)?, onComplete: (() -> Unit)? = null) {
     val p = LocalPalette.current
     val shape = RoundedCornerShape(18.dp)
     Column(
@@ -328,14 +331,26 @@ fun TaskCard(task: Task, onToggle: () -> Unit, onDelete: (() -> Unit)?) {
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(13.dp)
                     )
-                }
             }
+        }
+        if (!task.done && onComplete != null) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 10.dp),
+                horizontalArrangement = Arrangement.End
+            ) { ActionPill("Selesai", onComplete) }
         }
     }
 }
+}
 
 @Composable
-fun TasksScreen(state: AppState, onToggle: (String) -> Unit, onDelete: (String) -> Unit, onAdd: (String, String, String, String, String) -> Unit) {
+fun TasksScreen(
+    state: AppState,
+    onToggle: (String) -> Unit,
+    onComplete: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onAdd: (String, String, String, String, String) -> Unit
+) {
     var filter by remember { mutableStateOf("all") }
     var showAdd by remember { mutableStateOf(false) }
 
@@ -389,13 +404,13 @@ fun TasksScreen(state: AppState, onToggle: (String) -> Unit, onDelete: (String) 
             if (todayTasks.isNotEmpty()) {
                 item { GroupLabel("Hari ini") }
                 items(todayTasks, key = { it.id }) { task ->
-                    TaskCard(task, onToggle = { onToggle(task.id) }, onDelete = { onDelete(task.id) })
+                    TaskCard(task, onToggle = { onToggle(task.id) }, onComplete = { onComplete(task.id) }, onDelete = { onDelete(task.id) })
                 }
             }
             if (tomorrowTasks.isNotEmpty()) {
                 item { GroupLabel("Besok") }
                 items(tomorrowTasks, key = { it.id }) { task ->
-                    TaskCard(task, onToggle = { onToggle(task.id) }, onDelete = { onDelete(task.id) })
+                    TaskCard(task, onToggle = { onToggle(task.id) }, onComplete = { onComplete(task.id) }, onDelete = { onDelete(task.id) })
                 }
             }
             item {
@@ -478,11 +493,14 @@ fun FocusScreen(
     onReset: () -> Unit,
     onPreset: (Int) -> Unit,
     onFinish: () -> Unit,
+    onSelectTask: (String?) -> Unit,
+    onCompleteTask: (String) -> Unit,
     onOpenTasks: () -> Unit,
     onOpenMusic: () -> Unit
 ) {
     val p = LocalPalette.current
     val fraction = if (timer.total == 0) 0f else timer.left.toFloat() / timer.total
+    var showPicker by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp)
@@ -561,11 +579,11 @@ fun FocusScreen(
         }
 
         SectionTitle("Untuk sesi ini")
-        SelectRow(
-            emoji = "✅",
-            title = "Belum pilih tugas",
-            subtitle = "Opsional — fokus tetap jalan",
-            onClick = onOpenTasks
+        val focusTask = state.tasks.firstOrNull { it.id == state.focusTaskId }
+        FocusTaskRow(
+            task = focusTask,
+            onPick = { showPicker = true },
+            onComplete = { focusTask?.let { onCompleteTask(it.id) } }
         )
         Spacer(Modifier.height(10.dp))
         SelectRow(
@@ -591,6 +609,118 @@ fun FocusScreen(
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (showPicker) {
+        val openTasks = state.tasks.filter { !it.done }
+        AppSheet("Pilih tugas", { showPicker = false }) {
+            if (openTasks.isEmpty()) {
+                EmptyHint("Belum ada tugas aktif. Tambah dulu dari tab Tugas.")
+            } else {
+                openTasks.forEach { t ->
+                    PickerTaskRow(t, selected = t.id == state.focusTaskId) {
+                        onSelectTask(t.id)
+                        showPicker = false
+                    }
+                    Spacer(Modifier.height(7.dp))
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            if (state.focusTaskId != null) {
+                GhostButton("Kosongkan pilihan") {
+                    onSelectTask(null)
+                    showPicker = false
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            GhostButton("Buka semua tugas") {
+                showPicker = false
+                onOpenTasks()
+            }
+        }
+    }
+}
+
+@Composable
+private fun FocusTaskRow(task: Task?, onPick: () -> Unit, onComplete: () -> Unit) {
+    val p = LocalPalette.current
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .shadow(2.dp, shape, clip = false)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, p.line, shape)
+            .clickable(onClick = onPick)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) { Text(if (task == null) "📌" else "🎯", fontSize = 15.sp) }
+        Column(Modifier.weight(1f)) {
+            Text(
+                task?.title ?: "Pilih tugas untuk sesi ini",
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                task?.let { "${it.cat} · ${it.time}" } ?: "Opsional — fokus tetap jalan",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 3.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (task != null) ActionPill("Selesai", onComplete)
+        else Text("›", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun PickerTaskRow(task: Task, selected: Boolean, onClick: () -> Unit) {
+    val p = LocalPalette.current
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+            .border(1.dp, if (selected) MaterialTheme.colorScheme.primary else p.line, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            Icons.Rounded.Checklist,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp)
+        )
+        Column(Modifier.weight(1f)) {
+            Text(task.title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                "${task.cat} · ${if (task.day == "today") "Hari ini" else "Besok"}",
+                fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        if (selected) {
+            Icon(
+                Icons.Rounded.Check,
+                contentDescription = "Dipilih",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }
 

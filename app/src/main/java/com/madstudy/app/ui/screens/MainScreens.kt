@@ -7,18 +7,23 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -28,23 +33,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -55,28 +55,39 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.madstudy.app.data.AppState
 import com.madstudy.app.data.Task
 import com.madstudy.app.data.TimerUi
-import com.madstudy.app.data.doneTasks
 import com.madstudy.app.data.streak
 import com.madstudy.app.data.todayMin
 import com.madstudy.app.data.todaySessions
-import com.madstudy.app.data.totalMin
 import com.madstudy.app.mmss
 import com.madstudy.app.ui.AppCard
+import com.madstudy.app.ui.AppSheet
 import com.madstudy.app.ui.CheckCircle
+import com.madstudy.app.ui.Chip
+import com.madstudy.app.ui.DividerLine
+import com.madstudy.app.ui.EmptyHint
+import com.madstudy.app.ui.FieldLabel
+import com.madstudy.app.ui.FilterPill
 import com.madstudy.app.ui.GhostButton
+import com.madstudy.app.ui.GroupLabel
+import com.madstudy.app.ui.IconBtn
 import com.madstudy.app.ui.LocalPalette
 import com.madstudy.app.ui.PrimaryButton
 import com.madstudy.app.ui.PriorityDot
@@ -84,110 +95,86 @@ import com.madstudy.app.ui.SectionTitle
 import com.madstudy.app.ui.StatTile
 import kotlinx.coroutines.delay
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.math.roundToInt
 
+private val idLocale = Locale("id", "ID")
+
+private fun greeting(): String {
+    val h = java.time.LocalTime.now().hour
+    return when {
+        h < 11 -> "Selamat pagi 🌿"
+        h < 15 -> "Selamat siang ☀️"
+        h < 19 -> "Selamat sore 🌤️"
+        else -> "Selamat malam 🌙"
+    }
+}
+
 @Composable
-fun HomeScreen(state: AppState, onToggle: (String) -> Unit, onStartFocus: () -> Unit, onOpenTasks: () -> Unit) {
-    val palette = LocalPalette.current
-    val todayTasks = state.tasks.filter { it.day == "today" }
-    val done = todayTasks.count { it.done }
-    val fraction = if (todayTasks.isEmpty()) 0f else done.toFloat() / todayTasks.size
+fun HomeScreen(
+    state: AppState,
+    onToggle: (String) -> Unit,
+    onStartFocus: () -> Unit,
+    onOpenTasks: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    val today = state.tasks.filter { it.day == "today" }
+    val done = today.count { it.done }
+    val fraction = if (today.isEmpty()) 0f else done.toFloat() / today.size
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 24.dp)
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
                     Text(
-                        LocalDate.now().toString().let {
-                            java.time.LocalDate.parse(it).format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM", java.util.Locale("id", "ID")))
-                        },
+                        LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM", idLocale))
+                            .replaceFirstChar { it.uppercase() },
                         style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text("Halo, siap belajar?", style = MaterialTheme.typography.headlineLarge)
+                    Text(greeting(), style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(top = 4.dp))
                 }
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(
-                        "S",
-                        modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
+                IconBtn(Icons.Rounded.Palette, "Tema & pengaturan", onOpenSettings)
             }
         }
 
-        if (palette.pixel) {
-            item {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.fillMaxWidth().height(52.dp)
-                ) {
-                    Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.size(10.dp))
-                        Text("Cari tugas, jurnal, kebiasaan…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        item {
+            Column(Modifier.padding(top = 18.dp)) {
+                AppCard(gradient = true) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Progres hari ini", fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "$done dari ${today.size} tugas",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = (-0.3).sp,
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
+                            Text(
+                                "${state.todayMin()} menit fokus · ${state.todaySessions()} sesi",
+                                fontSize = 12.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
+                        }
+                        ProgressRing(fraction)
                     }
-                }
-            }
-            item {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("🌿", style = MaterialTheme.typography.bodyMedium)
-                        Spacer(Modifier.size(8.dp))
-                        Text(
-                            if (todayTasks.isEmpty()) "Belum ada tugas hari ini" else "${todayTasks.first().title} · ${todayTasks.first().time}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    Spacer(Modifier.height(14.dp))
+                    Box(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)) {
+                        Box(Modifier.fillMaxWidth(fraction).height(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
                     }
                 }
             }
         }
 
         item {
-            AppCard(color = MaterialTheme.colorScheme.surface) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Progres hari ini", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("$done dari ${todayTasks.size} tugas", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 4.dp))
-                        Text(
-                            "${state.todayMin()} menit fokus · ${state.todaySessions()} sesi",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-                    RingProgress(fraction)
-                }
-                Spacer(Modifier.height(14.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(fraction)
-                            .height(8.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
-                }
-            }
-        }
-
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatTile("${state.todayMin()}m", "Fokus hari ini", Modifier.weight(1f))
                 StatTile("${state.streak()}🔥", "Streak hari", Modifier.weight(1f))
                 StatTile("24", "Hari ke ujian", Modifier.weight(1f))
@@ -195,100 +182,152 @@ fun HomeScreen(state: AppState, onToggle: (String) -> Unit, onStartFocus: () -> 
         }
 
         item {
-            PrimaryButton("Mulai Sesi Fokus", Icons.Rounded.PlayArrow, onClick = onStartFocus)
+            Column(Modifier.padding(top = 18.dp)) {
+                PrimaryButton("Mulai Sesi Fokus", Icons.Rounded.PlayArrow, onClick = onStartFocus)
+            }
         }
 
         item {
             SectionTitle("Tugas hari ini", "Lihat semua", onOpenTasks)
         }
 
-        if (todayTasks.isEmpty()) {
-            item {
-                AppCard {
-                    Text("Belum ada tugas hari ini.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+        if (today.isEmpty()) {
+            item { EmptyHint("Belum ada tugas hari ini. Tambah dari tab Tasks.") }
         } else {
-            items(todayTasks.take(4), key = { it.id }) { task ->
-                TaskCard(task, onToggle = { onToggle(task.id) }, onDelete = null)
+            items(today.take(3), key = { it.id }) { task ->
+                Box(Modifier.padding(bottom = 9.dp)) {
+                    HomeTaskRow(task, onToggle = { onToggle(task.id) })
+                }
             }
         }
 
         item {
-            Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.secondaryContainer
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 18.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .padding(horizontal = 14.dp, vertical = 13.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("💡")
-                    Text(
-                        "Belajar sedikit setiap hari lebih kuat daripada belajar keras sekali seminggu.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
+                Text("💡", fontSize = 17.sp)
+                Text(
+                    "“Belajar sedikit setiap hari lebih kuat daripada belajar keras sekali seminggu.”",
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
 }
 
 @Composable
-private fun RingProgress(fraction: Float) {
-    val primary = MaterialTheme.colorScheme.primary
-    val soft = MaterialTheme.colorScheme.primaryContainer
-    Box(Modifier.size(58.dp), contentAlignment = Alignment.Center) {
+private fun ProgressRing(fraction: Float) {
+    val p = LocalPalette.current
+    Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
-            drawArc(soft, -90f, 360f, false, style = Stroke(9f, cap = StrokeCap.Round))
-            drawArc(primary, -90f, 360f * fraction.coerceIn(0f, 1f), false, style = Stroke(9f, cap = StrokeCap.Round))
+            drawArc(p.scheme.primaryContainer, -90f, 360f, false, style = Stroke(5.dp.toPx(), cap = StrokeCap.Round))
+            drawArc(p.scheme.primary, -90f, 360f * fraction.coerceIn(0f, 1f), false, style = Stroke(5.dp.toPx(), cap = StrokeCap.Round))
         }
-        Text("${(fraction * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall)
+        Text("${(fraction * 100).roundToInt()}%", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
     }
 }
 
 @Composable
-fun TaskCard(task: Task, onToggle: (() -> Unit), onDelete: (() -> Unit)?) {
-    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            CheckCircle(task.done, onToggle)
-            Column(Modifier.weight(1f)) {
+private fun HomeTaskRow(task: Task, onToggle: () -> Unit) {
+    val p = LocalPalette.current
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .shadow(2.dp, shape, clip = false)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border1(p)
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(Modifier.padding(top = 1.dp)) { CheckCircle(task.done, onToggle) }
+        Column(Modifier.weight(1f)) {
+            Text(
+                task.title,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = 18.sp,
+                textDecoration = if (task.done) TextDecoration.LineThrough else null,
+                color = if (task.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+            )
+            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(task.cat, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("•", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(task.time, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Box(Modifier.padding(top = 6.dp)) { PriorityDot(task.prio) }
+    }
+}
+
+private fun Modifier.border1(p: com.madstudy.app.ui.Palette): Modifier =
+    this.border(1.dp, p.line, RoundedCornerShape(18.dp))
+
+@Composable
+fun TaskCard(task: Task, onToggle: () -> Unit, onDelete: (() -> Unit)?) {
+    val p = LocalPalette.current
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .shadow(2.dp, shape, clip = false)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, p.line, shape)
+            .padding(horizontal = 14.dp, vertical = 13.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.padding(top = 1.dp)) { CheckCircle(task.done, onToggle) }
+            Column(Modifier.weight(1f).clickable(onClick = onToggle)) {
                 Text(
                     task.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    textDecoration = if (task.done) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 18.sp,
+                    textDecoration = if (task.done) TextDecoration.LineThrough else null,
                     color = if (task.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                 )
-                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                        Text(
-                            task.cat,
-                            Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                    Text(task.time, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Chip(task.cat)
+                    Text(task.time, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (task.st > 0) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(9.dp))
                     val f = task.sd.toFloat() / task.st
                     Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)) {
                         Box(Modifier.fillMaxWidth(f).height(4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
                     }
                     Text(
                         "${task.sd} dari ${task.st} subtugas",
-                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp)
+                        modifier = Modifier.padding(top = 5.dp)
                     )
                 }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(6.dp))
-                PriorityDot(task.prio)
-                if (onDelete != null) {
-                    IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                    }
+            Box(Modifier.padding(top = 6.dp)) { PriorityDot(task.prio) }
+            if (onDelete != null) {
+                Box(
+                    Modifier.size(24.dp).clip(CircleShape).clickable(onClick = onDelete),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "Hapus",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(13.dp)
+                    )
                 }
             }
         }
@@ -300,42 +339,42 @@ fun TasksScreen(state: AppState, onToggle: (String) -> Unit, onDelete: (String) 
     var filter by remember { mutableStateOf("all") }
     var showAdd by remember { mutableStateOf(false) }
 
-    val list = when (filter) {
+    val filtered = when (filter) {
         "today" -> state.tasks.filter { it.day == "today" }
         "done" -> state.tasks.filter { it.done }
         "high" -> state.tasks.filter { it.prio == "high" }
         else -> state.tasks
     }
+    val todayTasks = filtered.filter { it.day == "today" }
+    val tomorrowTasks = filtered.filter { it.day == "tomorrow" }
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp),
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text("Tugas", style = MaterialTheme.typography.headlineLarge)
-                Text("${state.tasks.size} tugas · ${state.doneTasks()} selesai", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "${state.tasks.size} tugas · ${state.tasks.count { it.done }} selesai",
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
             }
-            IconButton(onClick = { showAdd = true }) {
-                Icon(Icons.Rounded.Add, contentDescription = "Tambah tugas")
-            }
+            IconBtn(Icons.Rounded.Add, "Tambah tugas") { showAdd = true }
         }
 
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             listOf("all" to "Semua", "today" to "Hari ini", "done" to "Selesai", "high" to "Prioritas").forEach { (key, label) ->
-                FilterChip(
-                    selected = filter == key,
-                    onClick = { filter = key },
-                    label = { Text(label) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                )
+                FilterPill(label, filter == key) { filter = key }
             }
         }
 
@@ -344,15 +383,20 @@ fun TasksScreen(state: AppState, onToggle: (String) -> Unit, onDelete: (String) 
             contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            if (list.isEmpty()) {
-                item {
-                    AppCard {
-                        Text("Tidak ada tugas di filter ini.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                    }
+            if (filtered.isEmpty()) {
+                item { EmptyHint("Tidak ada tugas di filter ini.") }
+            }
+            if (todayTasks.isNotEmpty()) {
+                item { GroupLabel("Hari ini") }
+                items(todayTasks, key = { it.id }) { task ->
+                    TaskCard(task, onToggle = { onToggle(task.id) }, onDelete = { onDelete(task.id) })
                 }
             }
-            items(list, key = { it.id }) { task ->
-                TaskCard(task, onToggle = { onToggle(task.id) }, onDelete = { onDelete(task.id) })
+            if (tomorrowTasks.isNotEmpty()) {
+                item { GroupLabel("Besok") }
+                items(tomorrowTasks, key = { it.id }) { task ->
+                    TaskCard(task, onToggle = { onToggle(task.id) }, onDelete = { onDelete(task.id) })
+                }
             }
             item {
                 Spacer(Modifier.height(8.dp))
@@ -362,15 +406,18 @@ fun TasksScreen(state: AppState, onToggle: (String) -> Unit, onDelete: (String) 
     }
 
     if (showAdd) {
-        AddTaskDialog(onDismiss = { showAdd = false }, onSave = { title, cat, prio, day, time ->
-            onAdd(title, cat, prio, day, time)
-            showAdd = false
-        })
+        AddTaskSheet(
+            onDismiss = { showAdd = false },
+            onSave = { title, cat, prio, day, time ->
+                onAdd(title, cat, prio, day, time)
+                showAdd = false
+            }
+        )
     }
 }
 
 @Composable
-private fun AddTaskDialog(onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
+private fun AddTaskSheet(onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
     var title by remember { mutableStateOf("") }
     var time by remember { mutableStateOf("") }
     var cat by remember { mutableStateOf("Kalkulus") }
@@ -378,60 +425,48 @@ private fun AddTaskDialog(onDismiss: () -> Unit, onSave: (String, String, String
     var day by remember { mutableStateOf("today") }
     val cats = listOf("Kalkulus", "Biologi", "Fisika", "Sejarah", "Lainnya")
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = { if (title.isNotBlank()) onSave(title.trim(), cat, prio, day, time.trim()) }) {
-                Text("Simpan")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } },
-        title = { Text("Tugas baru") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Judul tugas") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(12.dp))
-                Text("Kategori", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    cats.take(3).forEach { c ->
-                        FilterChip(selected = cat == c, onClick = { cat = c }, label = { Text(c) })
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    cats.drop(3).forEach { c ->
-                        FilterChip(selected = cat == c, onClick = { cat = c }, label = { Text(c) })
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("Prioritas", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("high" to "Tinggi", "med" to "Sedang", "low" to "Rendah").forEach { (k, v) ->
-                        FilterChip(selected = prio == k, onClick = { prio = k }, label = { Text(v) })
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("Kapan", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(selected = day == "today", onClick = { day = "today" }, label = { Text("Hari ini") })
-                    FilterChip(selected = day == "tomorrow", onClick = { day = "tomorrow" }, label = { Text("Besok") })
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = time,
-                    onValueChange = { time = it },
-                    label = { Text("Jam (opsional)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+    AppSheet("Tugas baru", onDismiss) {
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            placeholder = { Text("Mis. Bab 4 — Integral", fontSize = 13.sp) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp)
+        )
+        FieldLabel("Kategori")
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            cats.take(3).forEach { c -> FilterPill(c, cat == c) { cat = c } }
+        }
+        Spacer(Modifier.height(7.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            cats.drop(3).forEach { c -> FilterPill(c, cat == c) { cat = c } }
+        }
+        FieldLabel("Prioritas")
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("high" to "Tinggi", "med" to "Sedang", "low" to "Rendah").forEach { (k, v) ->
+                FilterPill(v, prio == k) { prio = k }
             }
         }
-    )
+        FieldLabel("Kapan")
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            FilterPill("Hari ini", day == "today") { day = "today" }
+            FilterPill("Besok", day == "tomorrow") { day = "tomorrow" }
+        }
+        FieldLabel("Jam (opsional)")
+        OutlinedTextField(
+            value = time,
+            onValueChange = { time = it },
+            placeholder = { Text("10.00", fontSize = 13.sp) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp)
+        )
+        Spacer(Modifier.height(18.dp))
+        PrimaryButton("Simpan tugas", onClick = {
+            if (title.isNotBlank()) onSave(title.trim(), cat, prio, day, time.trim())
+        })
+    }
 }
 
 @Composable
@@ -442,111 +477,165 @@ fun FocusScreen(
     onPause: () -> Unit,
     onReset: () -> Unit,
     onPreset: (Int) -> Unit,
-    onFinish: () -> Unit
+    onFinish: () -> Unit,
+    onOpenTasks: () -> Unit,
+    onOpenMusic: () -> Unit
 ) {
-    val primary = MaterialTheme.colorScheme.primary
-    val soft = MaterialTheme.colorScheme.primaryContainer
+    val p = LocalPalette.current
     val fraction = if (timer.total == 0) 0f else timer.left.toFloat() / timer.total
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp)
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("Sesi Fokus", style = MaterialTheme.typography.headlineLarge)
-                Text("Pomodoro · ${timer.total / 60} menit", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                 Text(
-                    "Hari ini ${state.todaySessions()} sesi",
-                    Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    "Pomodoro · ${timer.total / 60} menit",
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 3.dp)
                 )
             }
+            Chip("Hari ini ${state.todaySessions()} sesi")
         }
 
-        Spacer(Modifier.height(16.dp))
-        Box(Modifier.fillMaxWidth().height(260.dp), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(240.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().padding(top = 14.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(250.dp), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
-                    drawArc(soft, -90f, 360f, false, style = Stroke(20f, cap = StrokeCap.Round))
-                    drawArc(primary, -90f, 360f * fraction, false, style = Stroke(20f, cap = StrokeCap.Round))
+                    drawArc(p.scheme.primaryContainer, 0f, 360f, false, style = Stroke(9.dp.toPx()))
+                    drawArc(p.scheme.primary, -90f, 360f * fraction, false, style = Stroke(9.dp.toPx(), cap = StrokeCap.Round))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(mmss(timer.left), style = MaterialTheme.typography.headlineLarge.copy(fontSize = androidx.compose.ui.unit.TextUnit.Unspecified))
-                    Text(if (timer.running) "FOKUS" else "SIAP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            listOf(25 to "25 / 5", 50 to "50 / 10", 45 to "45 / 10").forEach { (m, label) ->
-                FilterChip(
-                    selected = timer.total == m * 60,
-                    onClick = { onPreset(m) },
-                    label = { Text(label) },
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-            }
-        }
-
-        Spacer(Modifier.height(18.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface, modifier = Modifier.size(52.dp).clickable(onClick = onReset)) {
-                Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Refresh, contentDescription = "Reset") }
-            }
-            Spacer(Modifier.size(16.dp))
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(74.dp).clickable { if (timer.running) onPause() else onStart() }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        if (timer.running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (timer.running) "Jeda" else "Mulai",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(32.dp)
+                    Text(
+                        mmss(timer.left),
+                        fontSize = 52.sp,
+                        fontWeight = FontWeight.Light,
+                        letterSpacing = (-2).sp
+                    )
+                    Text(
+                        if (timer.running) "Fokus" else "Siap",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp)
                     )
                 }
             }
-            Spacer(Modifier.size(16.dp))
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface, modifier = Modifier.size(52.dp).clickable(onClick = onFinish)) {
-                Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.SkipNext, contentDescription = "Selesaikan sesi") }
+        }
+
+        Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.Center) {
+            FilterPill("25 / 5", timer.total == 25 * 60) { onPreset(25) }
+            Spacer(Modifier.width(8.dp))
+            FilterPill("50 / 10", timer.total == 50 * 60) { onPreset(50) }
+            Spacer(Modifier.width(8.dp))
+            FilterPill("45 / 10", timer.total == 45 * 60) { onPreset(45) }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(top = 22.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RoundButton(Icons.Rounded.Refresh, "Reset", 52, onReset)
+            Spacer(Modifier.width(16.dp))
+            Box(
+                Modifier
+                    .size(72.dp)
+                    .shadow(16.dp, CircleShape, clip = false, ambientColor = p.glow, spotColor = p.glow)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(p.gradA, p.gradB)))
+                    .clickable { if (timer.running) onPause() else onStart() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (timer.running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (timer.running) "Jeda" else "Mulai",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(26.dp)
+                )
             }
+            Spacer(Modifier.width(16.dp))
+            RoundButton(Icons.Rounded.SkipNext, "Selesaikan sesi", 52, onFinish)
         }
 
         SectionTitle("Untuk sesi ini")
+        SelectRow(
+            emoji = "✅",
+            title = "Belum pilih tugas",
+            subtitle = "Opsional — fokus tetap jalan",
+            onClick = onOpenTasks
+        )
+        Spacer(Modifier.height(10.dp))
+        SelectRow(
+            emoji = "🎵",
+            title = "Musik pengiring",
+            subtitle = "Pilih audio dari tab Music",
+            onClick = onOpenMusic
+        )
+        Spacer(Modifier.height(14.dp))
         AppCard {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("🌱", style = MaterialTheme.typography.headlineSmall)
+                Text("🌱", fontSize = 22.sp)
                 Column(Modifier.weight(1f)) {
-                    Text("Focus Garden", style = MaterialTheme.typography.titleMedium)
+                    Text("Focus Garden", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
                     Text(
                         "Selesaikan sesi untuk menumbuhkan tanamanmu",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 3.dp)
                     )
                 }
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(
-                        "Level ${1 + state.sessions.size / 5}",
-                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
+                Chip("Level ${1 + state.sessions.size / 5}")
             }
         }
+        Spacer(Modifier.height(24.dp))
+    }
+}
 
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatTile("${state.todayMin()}m", "Fokus hari ini", Modifier.weight(1f))
-            StatTile("${state.totalMin() / 60}j", "Total jam", Modifier.weight(1f))
-            StatTile("${state.sessions.size}", "Sesi", Modifier.weight(1f))
+@Composable
+private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, size: Int, onClick: () -> Unit) {
+    val p = LocalPalette.current
+    Box(
+        Modifier
+            .size(size.dp)
+            .shadow(2.dp, CircleShape, clip = false)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, p.line, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = desc, modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable
+private fun SelectRow(emoji: String, title: String, subtitle: String, onClick: () -> Unit) {
+    val p = LocalPalette.current
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .shadow(2.dp, shape, clip = false)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, p.line, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) { Text(emoji, fontSize = 15.sp) }
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
         }
-        Spacer(Modifier.height(20.dp))
+        Text("›", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -556,12 +645,15 @@ fun MusicScreen() {
     val player = remember { ExoPlayer.Builder(context).build() }
     DisposableEffect(Unit) { onDispose { player.release() } }
 
+    val p = LocalPalette.current
     val tracks = remember { mutableListOf<Uri>() }
     var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var current by remember { mutableStateOf<Uri?>(null) }
     var playing by remember { mutableStateOf(false) }
     var position by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
+    var shuffle by remember { mutableStateOf(false) }
+    var repeat by remember { mutableStateOf(false) }
 
     LaunchedEffect(playing) {
         while (playing) {
@@ -570,6 +662,21 @@ fun MusicScreen() {
             playing = player.isPlaying
             delay(400)
         }
+    }
+
+    fun playAt(uri: Uri) {
+        current = uri
+        player.setMediaItem(MediaItem.fromUri(uri))
+        player.prepare()
+        player.play()
+        playing = true
+    }
+
+    fun step(delta: Int) {
+        if (tracks.isEmpty()) return
+        val idx = tracks.indexOf(current)
+        val next = ((if (idx < 0) 0 else idx + delta) % tracks.size + tracks.size) % tracks.size
+        playAt(tracks[next])
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -586,128 +693,183 @@ fun MusicScreen() {
     }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp)
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("Musik", style = MaterialTheme.typography.headlineLarge)
-                Text("Dari penyimpanan HP · offline", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Dari penyimpanan HP · offline",
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
             }
-            IconButton(onClick = { picker.launch(arrayOf("audio/*")) }) {
-                Icon(Icons.Rounded.Add, contentDescription = "Tambah audio")
-            }
+            IconBtn(Icons.Rounded.Add, "Tambah audio") { picker.launch(arrayOf("audio/*")) }
         }
 
-        Spacer(Modifier.height(14.dp))
-        Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Rounded.MusicNote,
-                        contentDescription = null,
-                        modifier = Modifier.size(96.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                    )
-                }
+        AppCard(modifier = Modifier.padding(top = 18.dp)) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Brush.linearGradient(listOf(p.gradA, p.gradB, MaterialTheme.colorScheme.primaryContainer))),
+                contentAlignment = Alignment.Center
+            ) { Text("🎧", fontSize = 56.sp) }
+
+            Column(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     current?.let { names[it.toString()] ?: "Audio lokal" } ?: "Belum ada lagu diputar",
-                    style = MaterialTheme.typography.titleLarge,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text("Audio dari perangkat", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(12.dp))
-                Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))) {
+                Text(
+                    "Audio dari perangkat",
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
+            }
+
+            Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(mmss((position / 1000).toInt()), fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(Modifier.weight(1f).height(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)) {
                     val f = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                    Box(Modifier.fillMaxWidth(f).height(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                    Box(Modifier.fillMaxWidth(f).height(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(mmss((position / 1000).toInt()), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                    Text(mmss((duration / 1000).toInt()), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                }
-                Spacer(Modifier.height(10.dp))
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(64.dp).clickable {
-                        val c = current
-                        if (c == null) {
-                            tracks.firstOrNull()?.let { first ->
-                                current = first
-                                player.setMediaItem(MediaItem.fromUri(first))
-                                player.prepare()
-                                player.play()
-                                playing = true
+                Text(mmss((duration / 1000).toInt()), fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(top = 18.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Rounded.Shuffle,
+                    contentDescription = "Acak",
+                    modifier = Modifier.size(19.dp).clickable {
+                        shuffle = !shuffle
+                        player.shuffleModeEnabled = shuffle
+                    },
+                    tint = if (shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Icon(
+                    Icons.Rounded.SkipPrevious,
+                    contentDescription = "Sebelumnya",
+                    modifier = Modifier.size(22.dp).clickable { step(-1) }
+                )
+                Box(
+                    Modifier
+                        .size(56.dp)
+                        .shadow(14.dp, CircleShape, clip = false, ambientColor = p.glow, spotColor = p.glow)
+                        .clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(p.gradA, p.gradB)))
+                        .clickable {
+                            if (current == null) tracks.firstOrNull()?.let { playAt(it) }
+                            else if (player.isPlaying) {
+                                player.pause(); playing = false
+                            } else {
+                                player.play(); playing = true
                             }
-                        } else if (player.isPlaying) {
-                            player.pause()
-                            playing = false
-                        } else {
-                            player.play()
-                            playing = true
-                        }
-                    }
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = "Putar",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(30.dp)
-                        )
-                    }
+                    Icon(
+                        if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = "Putar",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Icon(
+                    Icons.Rounded.SkipNext,
+                    contentDescription = "Berikutnya",
+                    modifier = Modifier.size(22.dp).clickable { step(1) }
+                )
+                Icon(
+                    Icons.Rounded.Repeat,
+                    contentDescription = "Ulangi",
+                    modifier = Modifier.size(19.dp).clickable {
+                        repeat = !repeat
+                        player.repeatMode = if (repeat) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                    },
+                    tint = if (repeat) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        SectionTitle("Playlist", "Semua") { picker.launch(arrayOf("audio/*")) }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            val playlists = listOf(
+                Triple("Lo-Fi Study", "24 lagu", Color(0xFFC7D3E8)),
+                Triple("Deep Focus", "18 lagu", Color(0xFF9FB0C9)),
+                Triple("Pagi Santai", "11 lagu", Color(0xFFE8D3C7))
+            )
+            items(playlists.size) { i ->
+                val (title, count, cover) = playlists[i]
+                Column(
+                    Modifier
+                        .width(132.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, p.line, RoundedCornerShape(18.dp))
+                        .clickable { picker.launch(arrayOf("audio/*")) }
+                        .padding(12.dp)
+                ) {
+                    Box(
+                        Modifier.fillMaxWidth().height(66.dp).clip(RoundedCornerShape(12.dp))
+                            .background(Brush.linearGradient(listOf(cover, cover.copy(alpha = 0.65f))))
+                    )
+                    Text(title, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 9.dp))
+                    Text(count, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
 
-        SectionTitle("Lagu lokal", "Tambah", { picker.launch(arrayOf("audio/*")) })
-
-        if (tracks.isEmpty()) {
-            AppCard {
-                Text(
-                    "Belum ada lagu. Tap + untuk memilih file audio dari HP.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            AppCard {
-                tracks.forEach { uri ->
+        SectionTitle("Lagu lokal", "+ Tambah") { picker.launch(arrayOf("audio/*")) }
+        AppCard {
+            if (tracks.isEmpty()) {
+                EmptyHint("Belum ada lagu. Tap + untuk memilih file audio dari HP.")
+            } else {
+                tracks.forEachIndexed { index, uri ->
+                    if (index > 0) DividerLine()
                     Row(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable {
-                                current = uri
-                                player.setMediaItem(MediaItem.fromUri(uri))
-                                player.prepare()
-                                player.play()
-                                playing = true
-                            }
+                            .clickable { playAt(uri) }
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                            Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                            }
+                        Box(
+                            Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                         }
                         Column(Modifier.weight(1f)) {
                             Text(
                                 names[uri.toString()] ?: "Audio",
-                                style = MaterialTheme.typography.titleMedium,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                color = if (current == uri) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 if (current == uri) "Sedang diputar" else "Tap untuk putar",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 2.dp)
                             )
                         }
                         if (current == uri && playing) {
-                            Icon(Icons.Rounded.Pause, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Rounded.Pause, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                         }
                     }
                 }

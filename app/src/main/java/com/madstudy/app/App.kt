@@ -1,5 +1,8 @@
 package com.madstudy.app
 
+import android.app.Activity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,31 +11,35 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -40,6 +47,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.madstudy.app.data.AppViewModel
 import com.madstudy.app.data.TimerUi
+import com.madstudy.app.ui.DividerLine
 import com.madstudy.app.ui.LocalPalette
 import com.madstudy.app.ui.MadStudyTheme
 import com.madstudy.app.ui.paletteById
@@ -77,6 +85,14 @@ fun MadStudyApp(vm: AppViewModel) {
     val timer by vm.timer.collectAsState()
     val palette = paletteById(state.theme)
 
+    val view = LocalView.current
+    SideEffect {
+        val window = (view.context as? Activity)?.window ?: return@SideEffect
+        val controller = WindowCompat.getInsetsController(window, view)
+        controller.isAppearanceLightStatusBars = !palette.isDark
+        controller.isAppearanceLightNavigationBars = !palette.isDark
+    }
+
     MadStudyTheme(palette) {
         val nav = rememberNavController()
         val backStack by nav.currentBackStackEntryAsState()
@@ -86,9 +102,7 @@ fun MadStudyApp(vm: AppViewModel) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                if (isTab) {
-                    BottomBar(nav, route, palette.pixel)
-                }
+                if (isTab) BottomBar(nav, route)
             }
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
@@ -98,7 +112,8 @@ fun MadStudyApp(vm: AppViewModel) {
                             state = state,
                             onToggle = vm::toggleTask,
                             onStartFocus = { nav.navigate("focus") },
-                            onOpenTasks = { nav.navigate("tasks") }
+                            onOpenTasks = { nav.navigate("tasks") },
+                            onOpenSettings = { nav.navigate("settings") }
                         )
                     }
                     composable("tasks") {
@@ -117,7 +132,9 @@ fun MadStudyApp(vm: AppViewModel) {
                             onPause = vm::pauseTimer,
                             onReset = vm::resetTimer,
                             onPreset = vm::setPreset,
-                            onFinish = vm::finishEarly
+                            onFinish = vm::finishEarly,
+                            onOpenTasks = { nav.navigate("tasks") },
+                            onOpenMusic = { nav.navigate("music") }
                         )
                     }
                     composable("music") { MusicScreen() }
@@ -155,9 +172,11 @@ fun MadStudyApp(vm: AppViewModel) {
                 }
 
                 if (timer.running && route != "focus" && isTab) {
-                    MiniTimer(timer, Modifier.align(Alignment.BottomCenter).padding(12.dp)) {
-                        nav.navigate("focus")
-                    }
+                    MiniTimer(
+                        timer = timer,
+                        onPause = vm::pauseTimer,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp)
+                    ) { nav.navigate("focus") }
                 }
             }
         }
@@ -165,91 +184,117 @@ fun MadStudyApp(vm: AppViewModel) {
 }
 
 @Composable
-private fun BottomBar(nav: NavHostController, route: String, pixel: Boolean) {
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-        tabs.forEach { tab ->
-            val selected = route == tab.route
-            NavigationBarItem(
-                selected = selected,
-                onClick = {
-                    if (!selected) nav.navigate(tab.route) {
-                        popUpTo("home") { saveState = false }
-                        launchSingleTop = true
-                    }
-                },
-                icon = { Icon(tab.icon, contentDescription = tab.label, modifier = Modifier.size(22.dp)) },
-                label = { Text(tab.label) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = if (pixel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onPrimary,
-                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                    indicatorColor = if (pixel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.primary,
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            )
-        }
-    }
-}
-
-@Composable
-private fun MiniTimer(timer: TimerUi, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val palette = LocalPalette.current
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(if (palette.pill) 28.dp else 18.dp),
-        color = MaterialTheme.colorScheme.primary,
-        onClick = onClick
+private fun BottomBar(nav: NavHostController, route: String) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
     ) {
+        DividerLine()
         Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
         ) {
-            Box(
-                Modifier.size(30.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Rounded.Timer,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(18.dp)
-                )
+            tabs.forEach { tab ->
+                val selected = route == tab.route
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable {
+                            if (!selected) nav.navigate(tab.route) {
+                                popUpTo("home") { saveState = false }
+                                launchSingleTop = true
+                            }
+                        }
+                        .padding(vertical = 5.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        tab.icon,
+                        contentDescription = tab.label,
+                        modifier = Modifier.size(21.dp),
+                        tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        tab.label,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Box(
+                        Modifier
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.primary.copy(alpha = 0f)
+                            )
+                    )
+                }
             }
-            Column(Modifier.weight(1f)) {
-                Text("Sesi fokus berjalan", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Tap untuk buka timer",
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-            Text(
-                mmss(timer.left),
-                color = MaterialTheme.colorScheme.onPrimary,
-                fontWeight = FontWeight.Bold
-            )
         }
     }
 }
 
 @Composable
-fun EmptyState(title: String, hint: String, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+private fun MiniTimer(timer: TimerUi, onPause: () -> Unit, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.primary)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
         Box(
-            Modifier.size(56.dp),
+            Modifier.size(30.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.Rounded.Checklist,
+                Icons.Rounded.Timer,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(36.dp)
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(15.dp)
             )
         }
-        Spacer(Modifier.height(10.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Sesi fokus berjalan",
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimary
+            )
+            Text(
+                "Tetap jalan saat pindah tab",
+                fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
+            )
+        }
+        Text(
+            mmss(timer.left),
+            color = MaterialTheme.colorScheme.onPrimary,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp
+        )
+        Box(
+            Modifier.size(34.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f))
+                .clickable(onClick = onPause),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Rounded.Pause,
+                contentDescription = "Jeda",
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(13.dp)
+            )
+        }
     }
 }

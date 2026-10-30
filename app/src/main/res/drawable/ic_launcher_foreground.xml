@@ -1,15 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- open book -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,28 C47,24 38,23 31,25 L31,78 C38,76 47,77 54,81 Z" />
+        android:fillColor="#FFFBF2"
+        android:pathData="M54.5,39 C47,34.3 39,33.2 32,35.2 L32,73.4 C39,71.4 47,72.4 54.5,76.4 Z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,28 C61,24 70,23 77,25 L77,78 C70,76 61,77 54,81 Z" />
+        android:fillColor="#FFFBF2"
+        android:pathData="M54.5,39 C62,34.3 70,33.2 77,35.2 L77,73.4 C70,71.4 62,72.4 54.5,76.4 Z" />
+    <!-- page lines -->
     <path
-        android:fillColor="#7D9B80"
-        android:pathData="M54,32 L54,77" />
+        android:strokeColor="#D9E3D6"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M38.5,45.5 L49,46.6 M38.5,53 L49,54.1 M38.5,60.5 L49,61.6" />
+    <path
+        android:strokeColor="#D9E3D6"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M59.5,46.6 L70,45.5 M59.5,54.1 L70,53 M59.5,61.6 L70,60.5" />
+    <!-- spine -->
+    <path
+        android:strokeColor="#C9A87C"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M54.5,39.5 L54.5,75.8" />
+    <!-- leaf sprig -->
+    <path
+        android:strokeColor="#E8C99A"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M54.5,37.5 L54.5,24.5" />
+    <path
+        android:fillColor="#E8C99A"
+        android:pathData="M54.5,31 C49.2,27.6 48.8,21.6 54.5,17.4 C60.2,21.6 59.8,27.6 54.5,31 Z" />
+    <path
+        android:strokeColor="#C9A87C"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M54.5,29.2 L54.5,20" />
 </vector>

@@ -81,31 +81,7 @@ val isoDate: (LocalDate) -> String = { it.toString() }
 fun today(): String = LocalDate.now().toString()
 fun dayOff(n: Long): String = LocalDate.now().minusDays(n).toString()
 
-fun defaultState(): AppState = AppState(
-    tasks = listOf(
-        Task(title = "Bab 3 — Limit & Turunan", cat = "Kalkulus", prio = "high", time = "10.00", day = "today", sd = 2, st = 5),
-        Task(title = "Review catatan Biologi", cat = "Biologi", prio = "med", time = "13.30", day = "today"),
-        Task(title = "Latihan soal Fisika", cat = "Fisika", prio = "low", time = "15.00", day = "today", done = true, sd = 3, st = 3),
-        Task(title = "Ringkas materi Sejarah", cat = "Sejarah", prio = "med", time = "07.00", day = "tomorrow")
-    ),
-    journal = listOf(
-        Journal(date = dayOff(1), title = "Refleksi hari ini", body = "Dua sesi kalkulus selesai. Masih bingung di aturan turunan rantai, besok latihan soal lagi.")
-    ),
-    habits = listOf(
-        Habit(title = "Baca 20 menit", icon = "📖", checks = listOf(dayOff(1), today())),
-        Habit(title = "Review catatan", icon = "✍️", checks = listOf(today())),
-        Habit(title = "Minum air 8 gelas", icon = "💧")
-    ),
-    sessions = listOf(
-        Session(date = dayOff(6), minutes = 45),
-        Session(date = dayOff(5), minutes = 70),
-        Session(date = dayOff(4), minutes = 30),
-        Session(date = dayOff(3), minutes = 90),
-        Session(date = dayOff(2), minutes = 60),
-        Session(date = dayOff(1), minutes = 85),
-        Session(date = today(), minutes = 85)
-    )
-)
+fun defaultState(): AppState = AppState()
 
 fun AppState.todayMin(): Int = sessions.filter { it.date == today() }.sumOf { it.minutes }
 fun AppState.totalMin(): Int = sessions.sumOf { it.minutes }

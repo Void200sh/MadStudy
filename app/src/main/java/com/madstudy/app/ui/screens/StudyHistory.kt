@@ -3,6 +3,12 @@ package com.madstudy.app.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -43,21 +49,65 @@ fun CheckoutSheet(state: AppState, timer: TimerUi, onCancel: () -> Unit, onSave:
 
 @Composable
 fun StudyHistoryScreen(state: AppState, onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
-        GhostButton("Kembali", onClick = onBack)
-        Text("Study History", style = MaterialTheme.typography.headlineLarge)
-        Spacer(Modifier.height(12.dp))
-        if (state.sessions.isEmpty()) EmptyHint("Sesi yang di-checkout akan muncul di sini.")
-        state.sessions.asReversed().forEach { session ->
-            AppCard {
-                Text("${session.date} · ${com.madstudy.app.mmss(session.seconds)} fokus", fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                if (session.tasks.isEmpty()) Text("Fokus mandiri", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                session.tasks.forEach { task ->
-                    Text("${if (task.completed) "Selesai" else "Dikerjakan"} · ${task.title}")
+    val sessions = remember(state.sessions) { state.sessions.sortedWith(compareByDescending<com.madstudy.app.data.Session> { it.date }.thenByDescending { it.endedAt }) }
+    val groups = remember(sessions) { sessions.groupBy { it.date } }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { PageHeader("Study History", "Perjalanan belajarmu, satu sesi setiap waktu.", onBack) }
+        item {
+            AppCard(gradient = true) {
+                Text("TOTAL WAKTU FOKUS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(studyDuration(sessions.sumOf { it.seconds.toLong() }), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("${sessions.size} sesi")
+                    Chip("${sessions.sumOf { it.tasks.count { t -> t.completed } }} tugas selesai")
                 }
             }
-            Spacer(Modifier.height(10.dp))
+        }
+        if (sessions.isEmpty()) item { AppCard {
+            Text("Belum ada sesi tersimpan", style = MaterialTheme.typography.titleMedium)
+            Text("Mulai sesi fokus lalu checkout. Durasi dan tugasmu akan dirangkum di sini.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } }
+        groups.forEach { (date, entries) ->
+            item(key = "date-$date") { GroupLabel(historyDate(date)) }
+            items(entries, key = { it.id }) { session ->
+                AppCard {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(if (session.tasks.isEmpty()) "Fokus mandiri" else "Sesi belajar", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            if (session.endedAt > 0) Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale("id")).format(java.util.Date(session.endedAt)), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Chip(studyDuration(session.seconds.toLong()))
+                    }
+                    if (session.tasks.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp)); DividerLine(); Spacer(Modifier.height(8.dp))
+                        session.tasks.forEach { task ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(Modifier.size(8.dp).padding(top = 2.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                                Column(Modifier.weight(1f)) {
+                                    Text(task.title, fontWeight = FontWeight.Medium)
+                                    Text(if (task.completed) "Selesai" else "Dilanjutkan nanti", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+private fun studyDuration(seconds: Long): String {
+    val s = seconds.coerceAtLeast(0)
+    return when {
+        s >= 3600 -> "${s / 3600} jam ${(s % 3600) / 60} mnt"
+        s >= 60 -> "${s / 60} mnt ${s % 60} dtk"
+        else -> "$s dtk"
+    }
+}
+
+private fun historyDate(date: String): String = when (date) {
+    com.madstudy.app.data.today() -> "Hari ini"
+    com.madstudy.app.data.dayOff(1) -> "Kemarin"
+    else -> runCatching { java.time.LocalDate.parse(date).format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", java.util.Locale("id"))) }.getOrDefault(date)
 }

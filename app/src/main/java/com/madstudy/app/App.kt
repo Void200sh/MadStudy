@@ -171,7 +171,8 @@ fun MadStudyApp(vm: AppViewModel) {
                             state = state,
                             onTheme = vm::setTheme,
                             onToggle = vm::toggleSetting,
-                            onGoal = vm::changeGoal
+                            onGoal = vm::changeGoal,
+                            onHistory = { nav.navigate("study-history") }
                         ) { nav.popBackStack() }
                     }
                     composable("backup") {

@@ -93,16 +93,7 @@ private fun prettyDate(iso: String): String = runCatching {
     LocalDate.parse(iso).format(DateTimeFormatter.ofPattern("d MMM yyyy", idLocale))
 }.getOrDefault(iso)
 
-private fun unlockedBadges(state: AppState): Int {
-    var n = 0
-    if (state.sessions.isNotEmpty()) n++
-    if (state.streak() >= 7) n++
-    if (state.totalMin() >= 600) n++
-    if (state.doneTasks() >= 10) n++
-    if (state.journal.size >= 3) n++
-    if (state.sessions.size >= 5) n++
-    return n
-}
+private fun unlockedBadges(state: AppState): Int = studyBadges(state).count { it.unlocked }
 
 /* ------------------------------------------------------------------ */
 /* Profil                                                             */
@@ -351,6 +342,8 @@ fun JournalScreen(
 ) {
     var showAdd by remember { mutableStateOf(false) }
     val entries = state.journal.sortedByDescending { it.date }
+    var search by remember { mutableStateOf("") }
+    val visible = entries.filter { it.title.contains(search, true) || it.body.contains(search, true) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -361,12 +354,25 @@ fun JournalScreen(
                 Box(Modifier.weight(1f)) { PageHeader("Jurnal Belajar", onBack = onBack) }
                 IconBtn(Icons.Rounded.Add, "Tulis jurnal") { showAdd = true }
             }
-            EmptyHint("Catatan sesi & refleksi harian. Tersimpan di HP.")
+            Spacer(Modifier.height(12.dp))
+            AppCard(gradient = true) {
+                Text("Ruang refleksi", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text("Simpan hal yang kamu pahami, tantangan, dan rencana belajar berikutnya.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("${entries.size} catatan")
+                    Chip("${entries.map { it.date }.distinct().size} hari menulis")
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(value = search, onValueChange = { search = it }, label = { Text("Cari catatan") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp))
+            Spacer(Modifier.height(14.dp))
         }
         if (entries.isEmpty()) {
             item { EmptyHint("Belum ada jurnal. Tulis refleksi pertamamu lewat tombol +.") }
         }
-        items(entries, key = { it.id }) { entry ->
+        if (entries.isNotEmpty() && visible.isEmpty()) item { EmptyHint("Tidak ada catatan yang cocok.") }
+        items(visible, key = { it.id }) { entry ->
             Column(Modifier.padding(bottom = 10.dp)) {
                 JournalCard(entry) { onDelete(entry.id) }
             }
@@ -380,6 +386,7 @@ fun JournalScreen(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
+                label = { Text("Judul refleksi") },
                 placeholder = { Text("Refleksi hari ini", fontSize = 13.sp) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -407,6 +414,8 @@ fun JournalScreen(
 
 @Composable
 private fun JournalCard(entry: Journal, onDelete: () -> Unit) {
+    var expanded by remember(entry.id) { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val p = LocalPalette.current
     val shape = RoundedCornerShape(18.dp)
     Column(
@@ -427,21 +436,34 @@ private fun JournalCard(entry: Journal, onDelete: () -> Unit) {
                 letterSpacing = 0.7.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Box(Modifier.size(22.dp).clip(CircleShape).clickable(onClick = onDelete), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(40.dp).clip(CircleShape).clickable { confirmDelete = true }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Rounded.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
             }
         }
-        Text(entry.title, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+        Text(entry.title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
         if (entry.body.isNotBlank()) {
             Text(
                 entry.body,
-                fontSize = 12.sp,
-                lineHeight = 18.5.sp,
+                fontSize = 13.sp,
+                lineHeight = 21.sp,
+                maxLines = if (expanded) Int.MAX_VALUE else 4,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 7.dp)
             )
+            if (entry.body.length > 150 || entry.body.count { it == '\n' } >= 4) {
+                Text(if (expanded) "Ringkas catatan" else "Baca selengkapnya", color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { expanded = !expanded }.padding(top = 12.dp))
+            }
         }
     }
+    if (confirmDelete) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { confirmDelete = false },
+        title = { Text("Hapus catatan?") },
+        text = { Text("Catatan “${entry.title}” akan dihapus dari perangkat ini.") },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Hapus") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmDelete = false }) { Text("Batal") } }
+    )
 }
 
 /* ------------------------------------------------------------------ */
@@ -569,18 +591,22 @@ private fun HabitRow(habit: Habit, days: List<String>, onToggle: () -> Unit) {
 /* Pencapaian                                                         */
 /* ------------------------------------------------------------------ */
 
-private data class Badge(val icon: String, val title: String, val desc: String, val unlocked: Boolean)
+private data class Badge(val icon: String, val title: String, val desc: String, val current: Int, val target: Int) {
+    val unlocked get() = current >= target
+}
+
+private fun studyBadges(s: AppState): List<Badge> = buildList {
+    listOf(1, 5, 10, 25, 50, 100).forEach { add(Badge("🌱", when(it) { 1 -> "Langkah Pertama"; else -> "$it Sesi Fokus" }, "Selesaikan $it sesi belajar", s.sessions.size, it)) }
+    listOf(60, 300, 600, 1500, 3000).forEach { add(Badge("⏳", "${it / 60} Jam Fokus", "Kumpulkan $it menit belajar", s.totalMin(), it)) }
+    listOf(1, 5, 10, 25, 50).forEach { add(Badge("✅", "$it Tugas Tuntas", "Selesaikan $it tugas", s.doneTasks(), it)) }
+    listOf(1, 3, 10, 30).forEach { add(Badge("📔", "$it Refleksi", "Tulis $it jurnal belajar", s.journal.size, it)) }
+    listOf(3, 7, 14, 30).forEach { add(Badge("🔥", "$it Hari Konsisten", "Penuhi target harian $it hari berurutan", s.streak(), it)) }
+    listOf(1, 7, 30).forEach { add(Badge("🌿", "$it Kebiasaan Dicatat", "Centang habit sebanyak $it kali", s.habits.sumOf { h -> h.checks.size }, it)) }
+}
 
 @Composable
 fun AchievementsScreen(state: AppState, onBack: () -> Unit) {
-    val badges = listOf(
-        Badge("🌱", "Langkah Pertama", "Selesaikan sesi fokus pertama", state.sessions.isNotEmpty()),
-        Badge("🔥", "7 Hari Konsisten", "Streak 7 hari berturut-turut", state.streak() >= 7),
-        Badge("⏳", "10 Jam Fokus", "Total 10 jam belajar", state.totalMin() >= 600),
-        Badge("✅", "Kolektor Tugas", "Selesaikan 10 tugas", state.doneTasks() >= 10),
-        Badge("📔", "Penulis Rajin", "Tulis 3 jurnal belajar", state.journal.size >= 3),
-        Badge("🌸", "Taman Berbunga", "Kumpulkan 5 sesi fokus", state.sessions.size >= 5)
-    )
+    val badges = studyBadges(state)
     val open = badges.count { it.unlocked }
 
     Column(
@@ -639,6 +665,12 @@ private fun BadgeCard(badge: Badge, modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 3.dp)
         )
+        Spacer(Modifier.height(10.dp))
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = (badge.current.toFloat() / badge.target).coerceIn(0f, 1f), modifier = Modifier.fillMaxWidth(),
+        )
+        Text(if (badge.unlocked) "Terbuka" else "${badge.current.coerceAtMost(badge.target)} / ${badge.target}",
+            fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -652,6 +684,7 @@ fun SettingsScreen(
     onTheme: (String) -> Unit,
     onToggle: (String) -> Unit,
     onGoal: (Int) -> Unit,
+    onHistory: () -> Unit,
     onBack: () -> Unit
 ) {
     var showThemes by remember { mutableStateOf(false) }
@@ -660,6 +693,17 @@ fun SettingsScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp)
     ) {
         Box(Modifier.padding(top = 6.dp)) { PageHeader("Pengaturan", onBack = onBack) }
+
+        Spacer(Modifier.height(16.dp))
+        AppCard {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onHistory).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Study History", fontWeight = FontWeight.SemiBold)
+                    Text("Lihat durasi fokus dan tugas yang sudah dikerjakan", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("›", fontSize = 24.sp, color = MaterialTheme.colorScheme.primary)
+            }
+        }
 
         Column(Modifier.padding(top = 18.dp)) {
             AppCard {

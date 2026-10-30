@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -91,6 +92,9 @@ fun MadStudyApp(vm: AppViewModel) {
         val controller = WindowCompat.getInsetsController(window, view)
         controller.isAppearanceLightStatusBars = !palette.isDark
         controller.isAppearanceLightNavigationBars = !palette.isDark
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = palette.scheme.background.toArgb()
+        if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
     }
 
     MadStudyTheme(palette) {
@@ -110,8 +114,9 @@ fun MadStudyApp(vm: AppViewModel) {
                     composable("home") {
                         HomeScreen(
                             state = state,
-                            onToggle = vm::toggleTask,
-                            onStartFocus = { nav.navigate("focus") },
+                             onToggle = vm::toggleTask,
+                            onSelectTask = vm::selectFocusTask,
+                            onStartFocus = { vm.startTimer(); nav.navigate("focus") { launchSingleTop = true } },
                             onOpenTasks = { nav.navigate("tasks") },
                             onOpenSettings = { nav.navigate("settings") }
                         )
@@ -136,6 +141,9 @@ fun MadStudyApp(vm: AppViewModel) {
                             onFinish = vm::finishEarly,
                             onSelectTask = vm::selectFocusTask,
                             onCompleteTask = vm::completeTask,
+                            onCheckout = { ids -> vm.checkout(ids); nav.navigate("study-history") { launchSingleTop = true } },
+                            onCancelCheckout = vm::cancelCheckout,
+                            onOpenHistory = { nav.navigate("study-history") },
                             onOpenTasks = { nav.navigate("tasks") },
                             onOpenMusic = { nav.navigate("music") }
                         )
@@ -148,6 +156,9 @@ fun MadStudyApp(vm: AppViewModel) {
                         )
                     }
                     composable("stats") { StatsScreen(state) { nav.popBackStack() } }
+                    composable("study-history") {
+                        com.madstudy.app.ui.screens.StudyHistoryScreen(state) { nav.popBackStack() }
+                    }
                     composable("journal") {
                         JournalScreen(state, onAdd = vm::addJournal, onDelete = vm::deleteJournal) { nav.popBackStack() }
                     }

@@ -118,6 +118,7 @@ private fun greeting(): String {
 fun HomeScreen(
     state: AppState,
     onToggle: (String) -> Unit,
+    onSelectTask: (String?) -> Unit,
     onStartFocus: () -> Unit,
     onOpenTasks: () -> Unit,
     onOpenSettings: () -> Unit
@@ -199,7 +200,9 @@ fun HomeScreen(
         } else {
             items(today.take(3), key = { it.id }) { task ->
                 Box(Modifier.padding(bottom = 9.dp)) {
-                    HomeTaskRow(task, onToggle = { onToggle(task.id) })
+                    HomeTaskRow(task,
+                        selected = task.id in state.focusTaskIds || task.id == state.focusTaskId,
+                        onToggle = { onSelectTask(task.id) })
                 }
             }
         }
@@ -239,7 +242,7 @@ private fun ProgressRing(fraction: Float) {
 }
 
 @Composable
-private fun HomeTaskRow(task: Task, onToggle: () -> Unit) {
+private fun HomeTaskRow(task: Task, selected: Boolean, onToggle: () -> Unit) {
     val p = LocalPalette.current
     val shape = RoundedCornerShape(18.dp)
     Row(
@@ -254,7 +257,7 @@ private fun HomeTaskRow(task: Task, onToggle: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.Top
     ) {
-        Box(Modifier.padding(top = 1.dp)) { CheckCircle(task.done, onToggle) }
+        Box(Modifier.padding(top = 1.dp)) { CheckCircle(selected, onToggle) }
         Column(Modifier.weight(1f)) {
             Text(
                 task.title,
@@ -307,7 +310,7 @@ fun TaskCard(task: Task, onToggle: () -> Unit, onDelete: (() -> Unit)?, onComple
                 }
                 if (task.st > 0) {
                     Spacer(Modifier.height(9.dp))
-                    val f = task.sd.toFloat() / task.st
+                     val f = (task.sd.toFloat() / task.st).coerceIn(0f, 1f)
                     Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)) {
                         Box(Modifier.fillMaxWidth(f).height(4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
                     }
@@ -331,6 +334,7 @@ fun TaskCard(task: Task, onToggle: () -> Unit, onDelete: (() -> Unit)?, onComple
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(13.dp)
                     )
+                }
             }
         }
         if (!task.done && onComplete != null) {
@@ -340,7 +344,6 @@ fun TaskCard(task: Task, onToggle: () -> Unit, onDelete: (() -> Unit)?, onComple
             ) { ActionPill("Selesai", onComplete) }
         }
     }
-}
 }
 
 @Composable
@@ -495,6 +498,9 @@ fun FocusScreen(
     onFinish: () -> Unit,
     onSelectTask: (String?) -> Unit,
     onCompleteTask: (String) -> Unit,
+    onCheckout: (Set<String>) -> Unit,
+    onCancelCheckout: () -> Unit,
+    onOpenHistory: () -> Unit,
     onOpenTasks: () -> Unit,
     onOpenMusic: () -> Unit
 ) {
@@ -579,12 +585,18 @@ fun FocusScreen(
         }
 
         SectionTitle("Untuk sesi ini")
-        val focusTask = state.tasks.firstOrNull { it.id == state.focusTaskId }
-        FocusTaskRow(
-            task = focusTask,
-            onPick = { showPicker = true },
-            onComplete = { focusTask?.let { onCompleteTask(it.id) } }
-        )
+        val selectedIds = (state.focusTaskIds + listOfNotNull(state.focusTaskId)).toSet()
+        val focusTasks = state.tasks.filter { it.id in selectedIds }
+        if (focusTasks.isEmpty()) EmptyHint("Pilih tugas yang ingin dikerjakan selama sesi ini.")
+        focusTasks.forEach { task ->
+            FocusTaskRow(task, onPick = { showPicker = true }, onComplete = { onCompleteTask(task.id) })
+            Spacer(Modifier.height(8.dp))
+        }
+        GhostButton("Pilih tugas (${focusTasks.size})") { showPicker = true }
+        Spacer(Modifier.height(10.dp))
+        PrimaryButton("Checkout sesi", onClick = onFinish)
+        Spacer(Modifier.height(8.dp))
+        GhostButton("Study History", onClick = onOpenHistory)
         Spacer(Modifier.height(10.dp))
         SelectRow(
             emoji = "🎵",
@@ -612,19 +624,21 @@ fun FocusScreen(
     }
 
     if (showPicker) {
-        val openTasks = state.tasks.filter { !it.done }
-        AppSheet("Pilih tugas", { showPicker = false }) {
+        val openTasks = state.tasks
+        AppSheet("Semua tugas", { showPicker = false }) {
+            Column(Modifier.height(320.dp).verticalScroll(rememberScrollState())) {
             if (openTasks.isEmpty()) {
                 EmptyHint("Belum ada tugas aktif. Tambah dulu dari tab Tugas.")
             } else {
                 openTasks.forEach { t ->
-                    PickerTaskRow(t, selected = t.id == state.focusTaskId) {
-                        onSelectTask(t.id)
-                        showPicker = false
+                    PickerTaskRow(t, selected = t.id in state.focusTaskIds || t.id == state.focusTaskId) {
+                        if (!t.done) onSelectTask(t.id)
                     }
                     Spacer(Modifier.height(7.dp))
                 }
             }
+            }
+            PrimaryButton("Gunakan pilihan", onClick = { showPicker = false })
             Spacer(Modifier.height(6.dp))
             if (state.focusTaskId != null) {
                 GhostButton("Kosongkan pilihan") {
@@ -638,6 +652,9 @@ fun FocusScreen(
                 onOpenTasks()
             }
         }
+    }
+    if (timer.awaitingCheckout) {
+        CheckoutSheet(state, timer, onCancelCheckout, onCheckout)
     }
 }
 

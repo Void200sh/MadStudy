@@ -39,8 +39,14 @@ data class Task(
 data class Session(
     val id: String = UUID.randomUUID().toString(),
     val date: String,
-    val minutes: Int
+    val minutes: Int,
+    val seconds: Int = minutes * 60,
+    val tasks: List<SessionTask> = emptyList(),
+    val endedAt: Long = 0L
 )
+
+@Serializable
+data class SessionTask(val id: String, val title: String, val completed: Boolean = false)
 
 @Serializable
 data class Journal(
@@ -71,6 +77,7 @@ data class AppState(
     val theme: String = "sage",
     val lastBackup: String = "",
     val focusTaskId: String? = null,
+    val focusTaskIds: List<String> = emptyList(),
     val settings: Settings = Settings(),
     val tasks: List<Task> = emptyList(),
     val sessions: List<Session> = emptyList(),
@@ -117,7 +124,7 @@ class AppStore(private val context: Context) {
     }
 }
 
-data class TimerUi(val total: Int = 25 * 60, val left: Int = 25 * 60, val running: Boolean = false)
+data class TimerUi(val total: Int = 25 * 60, val left: Int = 25 * 60, val running: Boolean = false, val awaitingCheckout: Boolean = false)
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val store = AppStore(app)
@@ -127,6 +134,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _timer = MutableStateFlow(TimerUi())
     val timer: StateFlow<TimerUi> = _timer
     private var timerJob: Job? = null
+    private val saveMutex = kotlinx.coroutines.sync.Mutex()
 
     init {
         viewModelScope.launch { _state.value = store.flow.first() }
@@ -134,11 +142,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun set(s: AppState) {
         _state.value = s
-        viewModelScope.launch { store.save(s) }
+        viewModelScope.launch {
+            saveMutex.lock()
+            try { store.save(_state.value) } finally { saveMutex.unlock() }
+        }
     }
 
     fun addTask(title: String, cat: String, prio: String, day: String, time: String) {
-        val t = Task(title = title, cat = cat, prio = prio, day = day, time = time.ifBlank { "—" })
+        if (title.isBlank()) return
+        val t = Task(title = title.trim(), cat = cat, prio = prio, day = day, time = time.ifBlank { "—" })
         set(_state.value.copy(tasks = listOf(t) + _state.value.tasks))
     }
 
@@ -157,7 +169,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun selectFocusTask(id: String?) {
-        set(_state.value.copy(focusTaskId = id))
+        val s = _state.value
+        if (id == null) { set(s.copy(focusTaskId = null, focusTaskIds = emptyList())); return }
+        if (s.tasks.none { it.id == id && !it.done }) return
+        val ids = (s.focusTaskIds + listOfNotNull(s.focusTaskId)).distinct()
+        val next = if (id in ids) ids - id else ids + id
+        set(s.copy(focusTaskId = next.firstOrNull(), focusTaskIds = next))
     }
 
     fun deleteTask(id: String) {
@@ -165,7 +182,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         set(
             s.copy(
                 tasks = s.tasks.filterNot { it.id == id },
-                focusTaskId = if (s.focusTaskId == id) null else s.focusTaskId
+                focusTaskId = if (s.focusTaskId == id) null else s.focusTaskId,
+                focusTaskIds = s.focusTaskIds - id
             )
         )
     }
@@ -218,7 +236,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /* ---------- timer ---------- */
     fun startTimer() {
-        if (_timer.value.running) return
+        if (_timer.value.running || _timer.value.awaitingCheckout) return
         _timer.value = _timer.value.copy(running = true)
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
@@ -246,19 +264,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun finishEarly() {
-        val t = _timer.value
-        val spent = ((t.total - t.left) / 60f).roundToInt()
-        timerJob?.cancel()
-        _timer.value = TimerUi(total = t.total, left = t.total, running = false)
-        if (spent >= 1) addSession(spent)
+        pauseTimer()
+        _timer.value = _timer.value.copy(awaitingCheckout = true)
     }
 
     private fun finishTimer() {
-        val t = _timer.value
         timerJob?.cancel()
-        _timer.value = TimerUi(total = t.total, left = t.total, running = false)
-        addSession((t.total / 60f).roundToInt())
+        _timer.value = _timer.value.copy(left = 0, running = false, awaitingCheckout = true)
     }
+
+    fun checkout(completedIds: Set<String>) {
+        val t = _timer.value
+        if (!t.awaitingCheckout) return
+        val s = _state.value
+        val ids = (s.focusTaskIds + listOfNotNull(s.focusTaskId)).toSet()
+        val selected = s.tasks.filter { it.id in ids }
+        val seconds = (t.total - t.left).coerceAtLeast(0)
+        val entry = Session(date = today(), minutes = seconds / 60, seconds = seconds,
+            tasks = selected.map { SessionTask(it.id, it.title, it.id in completedIds || it.done) },
+            endedAt = System.currentTimeMillis())
+        set(s.copy(tasks = s.tasks.map { if (it.id in ids && it.id in completedIds) it.copy(done = true) else it },
+            sessions = s.sessions + entry, focusTaskId = null, focusTaskIds = emptyList()))
+        _timer.value = TimerUi(total = t.total, left = t.total)
+    }
+
+    fun cancelCheckout() { _timer.value = _timer.value.copy(awaitingCheckout = false) }
 
     /* ---------- backup ---------- */
     fun exportJson(): String {

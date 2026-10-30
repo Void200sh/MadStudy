@@ -122,7 +122,7 @@ private val ocean = Palette(
 /* Pixel — Material You: Google blue, tonal containers, pill shapes. */
 private val pixel = Palette(
     id = "pixel", name = "Pixel", note = "Material You ala Google", pixel = true,
-    cardRadius = 26, bigRadius = 30, pill = true,
+    cardRadius = 28, bigRadius = 32, pill = true,
     scheme = lightColorScheme(
         primary = Color(0xFF1A73E8), onPrimary = Color.White,
         primaryContainer = Color(0xFFD3E3FD), onPrimaryContainer = Color(0xFF041E49),
@@ -132,7 +132,7 @@ private val pixel = Palette(
         tertiaryContainer = Color(0xFFFFE0B2), onTertiaryContainer = Color(0xFF3D2A00),
         background = Color(0xFFF8F9FA), onBackground = Color(0xFF1F1F1F),
         surface = Color(0xFFFFFFFF), onSurface = Color(0xFF1F1F1F),
-        surfaceVariant = Color(0xFFF1F3F4), onSurfaceVariant = Color(0xFF5F6368),
+        surfaceVariant = Color(0xFFEAF0FA), onSurfaceVariant = Color(0xFF44474F),
         outline = Color(0xFFDADCE0), outlineVariant = Color(0xFFE8EAED)
     ),
     line = Color(0xFFDADCE0),
@@ -148,6 +148,14 @@ val LocalPalette = staticCompositionLocalOf { sage }
 
 private fun appTypography(p: Palette): Typography {
     val base = Typography()
+    if (p.pixel) return base.copy(
+        headlineLarge = TextStyle(fontSize = 32.sp, lineHeight = 40.sp, fontWeight = FontWeight.Normal),
+        headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Normal),
+        titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Normal),
+        titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
+        bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+        labelSmall = TextStyle(fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
+    )
     return base.copy(
         headlineLarge = TextStyle(fontSize = 24.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp),
         headlineSmall = TextStyle(fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp),

@@ -32,7 +32,9 @@ data class Task(
     val day: String = "today",
     val done: Boolean = false,
     val sd: Int = 0,
-    val st: Int = 0
+    val st: Int = 0,
+    val dueDate: String = "",
+    val inProgress: Boolean = false
 )
 
 @Serializable
@@ -42,7 +44,9 @@ data class Session(
     val minutes: Int,
     val seconds: Int = minutes * 60,
     val tasks: List<SessionTask> = emptyList(),
-    val endedAt: Long = 0L
+    val endedAt: Long = 0L,
+    val subject: String = "",
+    val journalId: String? = null
 )
 
 @Serializable
@@ -53,7 +57,8 @@ data class Journal(
     val id: String = UUID.randomUUID().toString(),
     val date: String,
     val title: String,
-    val body: String
+    val body: String,
+    val sessionId: String? = null
 )
 
 @Serializable
@@ -69,7 +74,9 @@ data class Settings(
     val goal: Int = 60,
     val autoBreak: Boolean = true,
     val autoMusic: Boolean = false,
-    val remind: Boolean = true
+    val remind: Boolean = true,
+    val examName: String = "",
+    val examDate: String = ""
 )
 
 @Serializable
@@ -78,6 +85,8 @@ data class AppState(
     val lastBackup: String = "",
     val focusTaskId: String? = null,
     val focusTaskIds: List<String> = emptyList(),
+    val savedTimer: TimerSnapshot? = null,
+    val unlockedBadgeIds: Set<String> = emptySet(),
     val settings: Settings = Settings(),
     val tasks: List<Task> = emptyList(),
     val sessions: List<Session> = emptyList(),
@@ -90,6 +99,17 @@ fun today(): String = LocalDate.now().toString()
 fun dayOff(n: Long): String = LocalDate.now().minusDays(n).toString()
 
 fun defaultState(): AppState = AppState()
+
+@Serializable
+data class TimerSnapshot(val total: Int = 1500, val left: Int = 1500,
+    val deadline: Long = 0, val running: Boolean = false, val awaitingCheckout: Boolean = false,
+    val isBreak: Boolean = false)
+
+fun Task.due(): LocalDate? = runCatching { LocalDate.parse(dueDate) }.getOrNull()
+fun Task.isToday(): Boolean = due()?.let { it <= LocalDate.now() } ?: (day == "today")
+fun migrateState(state: AppState): AppState = state.copy(tasks = state.tasks.map {
+    if (it.dueDate.isBlank()) it.copy(dueDate = LocalDate.now().plusDays(if (it.day == "tomorrow") 1 else 0).toString()) else it
+})
 
 fun AppState.todayMin(): Int = sessions.filter { it.date == today() }.sumOf { it.minutes }
 fun AppState.totalMin(): Int = sessions.sumOf { it.minutes }
@@ -124,7 +144,7 @@ class AppStore(private val context: Context) {
     }
 }
 
-data class TimerUi(val total: Int = 25 * 60, val left: Int = 25 * 60, val running: Boolean = false, val awaitingCheckout: Boolean = false)
+data class TimerUi(val total: Int = 25 * 60, val left: Int = 25 * 60, val running: Boolean = false, val awaitingCheckout: Boolean = false, val isBreak: Boolean = false)
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val store = AppStore(app)
@@ -135,9 +155,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val timer: StateFlow<TimerUi> = _timer
     private var timerJob: Job? = null
     private val saveMutex = kotlinx.coroutines.sync.Mutex()
+    private var deadline = 0L
+    private val appContext = app
 
     init {
-        viewModelScope.launch { _state.value = store.flow.first() }
+        viewModelScope.launch {
+            _state.value = migrateState(store.flow.first())
+            _state.value.savedTimer?.let { t ->
+                deadline = t.deadline
+                val left = if (t.running) ((deadline - System.currentTimeMillis() + 999) / 1000).toInt().coerceIn(0, t.total) else t.left
+                _timer.value = TimerUi(t.total, left, false, t.awaitingCheckout || (t.running && left == 0 && !t.isBreak), t.isBreak)
+                if (t.running && left > 0) startTimer()
+            }
+        }
     }
 
     private fun set(s: AppState) {
@@ -146,11 +176,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             saveMutex.lock()
             try { store.save(_state.value) } finally { saveMutex.unlock() }
         }
+        com.madstudy.app.notifications.StudyNotifications.scheduleReminders(appContext, s)
     }
 
     fun addTask(title: String, cat: String, prio: String, day: String, time: String) {
         if (title.isBlank()) return
-        val t = Task(title = title.trim(), cat = cat, prio = prio, day = day, time = time.ifBlank { "—" })
+        val date = runCatching { LocalDate.parse(day).toString() }.getOrElse { LocalDate.now().plusDays(if (day == "tomorrow") 1 else 0).toString() }
+        val t = Task(title = title.trim(), cat = cat.trim().ifBlank { "Lainnya" }, prio = prio, day = day, time = time.ifBlank { "—" }, dueDate = date)
         set(_state.value.copy(tasks = listOf(t) + _state.value.tasks))
     }
 
@@ -198,6 +230,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         set(_state.value.copy(journal = _state.value.journal.filterNot { it.id == id }))
     }
 
+    fun editJournal(id: String, title: String, body: String) {
+        if (title.isBlank() && body.isBlank()) return
+        set(_state.value.copy(journal = _state.value.journal.map {
+            if (it.id == id) it.copy(title = title.trim().ifBlank { "Catatan" }, body = body.trim()) else it
+        }))
+    }
+
+    fun editTask(task: Task) {
+        if (task.title.isBlank() || task.due() == null) return
+        set(_state.value.copy(tasks = _state.value.tasks.map { if (it.id == task.id) task.copy(title = task.title.trim()) else it }))
+    }
+
+    fun setExam(name: String, date: String): Boolean {
+        if (date.isNotBlank() && runCatching { LocalDate.parse(date) }.isFailure) return false
+        set(_state.value.copy(settings = _state.value.settings.copy(examName = name.trim(), examDate = date)))
+        return true
+    }
+
+    fun unlockBadges(ids: Set<String>) {
+        val next = _state.value.unlockedBadgeIds + ids
+        if (next != _state.value.unlockedBadgeIds) set(_state.value.copy(unlockedBadgeIds = next))
+    }
+
     fun addHabit(title: String, icon: String) {
         if (title.isBlank()) return
         set(_state.value.copy(habits = _state.value.habits + Habit(title = title, icon = icon)))
@@ -238,11 +293,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun startTimer() {
         if (_timer.value.running || _timer.value.awaitingCheckout) return
         _timer.value = _timer.value.copy(running = true)
+        deadline = System.currentTimeMillis() + _timer.value.left * 1000L
+        val ids = (_state.value.focusTaskIds + listOfNotNull(_state.value.focusTaskId)).toSet()
+        set(_state.value.copy(tasks = _state.value.tasks.map { if (it.id in ids && !it.done) it.copy(inProgress = true) else it }))
+        persistTimer()
+        com.madstudy.app.notifications.StudyNotifications.timer(appContext, deadline)
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while (_timer.value.left > 0) {
                 delay(1000)
-                _timer.value = _timer.value.copy(left = _timer.value.left - 1)
+                val left = ((deadline - System.currentTimeMillis() + 999) / 1000).toInt().coerceIn(0, _timer.value.total)
+                _timer.value = _timer.value.copy(left = left)
             }
             finishTimer()
         }
@@ -251,44 +312,66 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun pauseTimer() {
         timerJob?.cancel()
         _timer.value = _timer.value.copy(running = false)
+        persistTimer()
+        com.madstudy.app.notifications.StudyNotifications.cancelTimer(appContext)
     }
 
     fun resetTimer() {
+        if (_timer.value.total != _timer.value.left || _timer.value.awaitingCheckout) { finishEarly(); return }
         timerJob?.cancel()
         _timer.value = TimerUi(total = _timer.value.total, left = _timer.value.total, running = false)
+        persistTimer()
     }
 
     fun setPreset(minutes: Int) {
+        if (_timer.value.running || _timer.value.awaitingCheckout || _timer.value.left != _timer.value.total) return
         timerJob?.cancel()
-        _timer.value = TimerUi(total = minutes * 60, left = minutes * 60, running = false)
+        val seconds = minutes.coerceIn(1, 180) * 60
+        _timer.value = TimerUi(total = seconds, left = seconds, running = false)
+        persistTimer()
     }
 
     fun finishEarly() {
         pauseTimer()
         _timer.value = _timer.value.copy(awaitingCheckout = true)
+        persistTimer()
     }
 
     private fun finishTimer() {
         timerJob?.cancel()
-        _timer.value = _timer.value.copy(left = 0, running = false, awaitingCheckout = true)
+        val wasBreak = _timer.value.isBreak
+        _timer.value = _timer.value.copy(left = 0, running = false, awaitingCheckout = !wasBreak)
+        persistTimer()
+        com.madstudy.app.notifications.StudyNotifications.cancelTimer(appContext)
+        if (wasBreak) { _timer.value = TimerUi(); persistTimer() }
     }
 
-    fun checkout(completedIds: Set<String>) {
+    fun checkout(completedIds: Set<String>, reflection: String = "") {
         val t = _timer.value
         if (!t.awaitingCheckout) return
         val s = _state.value
         val ids = (s.focusTaskIds + listOfNotNull(s.focusTaskId)).toSet()
         val selected = s.tasks.filter { it.id in ids }
         val seconds = (t.total - t.left).coerceAtLeast(0)
-        val entry = Session(date = today(), minutes = seconds / 60, seconds = seconds,
+        val entryId = UUID.randomUUID().toString()
+        val journal = reflection.takeIf { it.isNotBlank() }?.let { Journal(date = today(), title = "Refleksi sesi fokus", body = it.trim(), sessionId = entryId) }
+        val entry = Session(id = entryId, date = today(), minutes = seconds / 60, seconds = seconds,
             tasks = selected.map { SessionTask(it.id, it.title, it.id in completedIds || it.done) },
-            endedAt = System.currentTimeMillis())
-        set(s.copy(tasks = s.tasks.map { if (it.id in ids && it.id in completedIds) it.copy(done = true) else it },
-            sessions = s.sessions + entry, focusTaskId = null, focusTaskIds = emptyList()))
-        _timer.value = TimerUi(total = t.total, left = t.total)
+            endedAt = System.currentTimeMillis(), subject = selected.map { it.cat }.distinct().joinToString(", "), journalId = journal?.id)
+        set(s.copy(tasks = s.tasks.map { if (it.id in ids) it.copy(done = it.done || it.id in completedIds, inProgress = it.id !in completedIds && !it.done) else it },
+            sessions = s.sessions + entry, journal = if (journal != null) listOf(journal) + s.journal else s.journal,
+            focusTaskId = null, focusTaskIds = emptyList()))
+        _timer.value = if (s.settings.autoBreak) TimerUi(total = 300, left = 300, isBreak = true) else TimerUi(total = t.total, left = t.total)
+        persistTimer()
+        if (s.settings.autoBreak) startTimer()
     }
 
-    fun cancelCheckout() { _timer.value = _timer.value.copy(awaitingCheckout = false) }
+    fun cancelCheckout() { _timer.value = _timer.value.copy(awaitingCheckout = false); persistTimer() }
+
+    private fun persistTimer() {
+        val t = _timer.value
+        set(_state.value.copy(savedTimer = TimerSnapshot(t.total, t.left, deadline, t.running, t.awaitingCheckout, t.isBreak)))
+    }
 
     /* ---------- backup ---------- */
     fun exportJson(): String {
@@ -306,7 +389,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return try {
             val json = Json { ignoreUnknownKeys = true }
             val parsed = json.decodeFromString<AppState>(raw)
-            set(parsed)
+            pauseTimer()
+            _timer.value = TimerUi()
+            set(migrateState(parsed).copy(savedTimer = null))
             true
         } catch (e: Exception) {
             false
@@ -314,6 +399,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun resetAll() {
+        pauseTimer(); _timer.value = TimerUi()
         set(defaultState())
     }
 }

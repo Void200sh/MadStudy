@@ -78,6 +78,7 @@ import com.madstudy.app.data.TimerUi
 import com.madstudy.app.data.streak
 import com.madstudy.app.data.todayMin
 import com.madstudy.app.data.todaySessions
+import com.madstudy.app.data.isToday
 import com.madstudy.app.mmss
 import com.madstudy.app.ui.ActionPill
 import com.madstudy.app.ui.AppCard
@@ -123,7 +124,7 @@ fun HomeScreen(
     onOpenTasks: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    val today = state.tasks.filter { it.day == "today" }
+    val today = state.tasks.filter { it.isToday() }
     val done = today.count { it.done }
     val fraction = if (today.isEmpty()) 0f else done.toFloat() / today.size
 
@@ -181,7 +182,8 @@ fun HomeScreen(
             Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatTile("${state.todayMin()}m", "Fokus hari ini", Modifier.weight(1f))
                 StatTile("${state.streak()}🔥", "Streak hari", Modifier.weight(1f))
-                StatTile("24", "Hari ke ujian", Modifier.weight(1f))
+                val exam = runCatching { LocalDate.parse(state.settings.examDate) }.getOrNull()
+                if (exam != null) StatTile("${java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), exam).coerceAtLeast(0)}", state.settings.examName.ifBlank { "Hari ke ujian" }, Modifier.weight(1f))
             }
         }
 
@@ -244,13 +246,13 @@ private fun ProgressRing(fraction: Float) {
 @Composable
 private fun HomeTaskRow(task: Task, selected: Boolean, onToggle: () -> Unit) {
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(if (p.pixel) 28.dp else 18.dp)
     Row(
         Modifier
             .fillMaxWidth()
-            .shadow(2.dp, shape, clip = false)
+            .shadow(if (p.pixel) 0.dp else 2.dp, shape, clip = false)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
+            .background(if (p.pixel) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
             .border1(p)
             .clickable(onClick = onToggle)
             .padding(horizontal = 14.dp, vertical = 13.dp),
@@ -283,15 +285,15 @@ private fun Modifier.border1(p: com.madstudy.app.ui.Palette): Modifier =
 @Composable
 fun TaskCard(task: Task, onToggle: () -> Unit, onDelete: (() -> Unit)?, onComplete: (() -> Unit)? = null) {
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(if (p.pixel) 28.dp else 18.dp)
     Column(
         Modifier
             .fillMaxWidth()
-            .shadow(2.dp, shape, clip = false)
+            .shadow(if (p.pixel) 0.dp else 2.dp, shape, clip = false)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, p.line, shape)
-            .padding(horizontal = 14.dp, vertical = 13.dp)
+            .background(if (p.pixel) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+            .border(if (p.pixel) 0.dp else 1.dp, p.line, shape)
+            .padding(horizontal = if (p.pixel) 20.dp else 14.dp, vertical = if (p.pixel) 18.dp else 13.dp)
     ) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.padding(top = 1.dp)) { CheckCircle(task.done, onToggle) }
@@ -356,15 +358,18 @@ fun TasksScreen(
 ) {
     var filter by remember { mutableStateOf("all") }
     var showAdd by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
 
     val filtered = when (filter) {
-        "today" -> state.tasks.filter { it.day == "today" }
+        "today" -> state.tasks.filter { it.isToday() }
         "done" -> state.tasks.filter { it.done }
         "high" -> state.tasks.filter { it.prio == "high" }
         else -> state.tasks
     }
-    val todayTasks = filtered.filter { it.day == "today" }
-    val tomorrowTasks = filtered.filter { it.day == "tomorrow" }
+    val matched = filtered.filter { it.title.contains(query, true) || it.cat.contains(query, true) }
+        .sortedWith(compareBy<Task> { it.done }.thenBy { it.dueDate }.thenBy { if (it.prio == "high") 0 else 1 })
+    val todayTasks = matched.filter { it.isToday() }
+    val tomorrowTasks = matched.filterNot { it.isToday() }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -401,6 +406,7 @@ fun TasksScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
+            item { OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Cari tugas atau pelajaran") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
             if (filtered.isEmpty()) {
                 item { EmptyHint("Tidak ada tugas di filter ini.") }
             }
@@ -411,7 +417,7 @@ fun TasksScreen(
                 }
             }
             if (tomorrowTasks.isNotEmpty()) {
-                item { GroupLabel("Besok") }
+                item { GroupLabel("Terjadwal") }
                 items(tomorrowTasks, key = { it.id }) { task ->
                     TaskCard(task, onToggle = { onToggle(task.id) }, onComplete = { onComplete(task.id) }, onDelete = { onDelete(task.id) })
                 }
@@ -441,6 +447,7 @@ private fun AddTaskSheet(onDismiss: () -> Unit, onSave: (String, String, String,
     var cat by remember { mutableStateOf("Kalkulus") }
     var prio by remember { mutableStateOf("med") }
     var day by remember { mutableStateOf("today") }
+    var customDate by remember { mutableStateOf("") }
     val cats = listOf("Kalkulus", "Biologi", "Fisika", "Sejarah", "Lainnya")
 
     AppSheet("Tugas baru", onDismiss) {
@@ -472,6 +479,7 @@ private fun AddTaskSheet(onDismiss: () -> Unit, onSave: (String, String, String,
             FilterPill("Besok", day == "tomorrow") { day = "tomorrow" }
         }
         FieldLabel("Jam (opsional)")
+        OutlinedTextField(value = customDate, onValueChange = { customDate = it }, label = { Text("Tanggal opsional (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(
             value = time,
             onValueChange = { time = it },
@@ -482,7 +490,7 @@ private fun AddTaskSheet(onDismiss: () -> Unit, onSave: (String, String, String,
         )
         Spacer(Modifier.height(18.dp))
         PrimaryButton("Simpan tugas", onClick = {
-            if (title.isNotBlank()) onSave(title.trim(), cat, prio, day, time.trim())
+            if (title.isNotBlank() && (customDate.isBlank() || runCatching { LocalDate.parse(customDate) }.isSuccess)) onSave(title.trim(), cat, prio, customDate.ifBlank { day }, time.trim())
         })
     }
 }
@@ -498,7 +506,7 @@ fun FocusScreen(
     onFinish: () -> Unit,
     onSelectTask: (String?) -> Unit,
     onCompleteTask: (String) -> Unit,
-    onCheckout: (Set<String>) -> Unit,
+    onCheckout: (Set<String>, String) -> Unit,
     onCancelCheckout: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenTasks: () -> Unit,
@@ -507,6 +515,7 @@ fun FocusScreen(
     val p = LocalPalette.current
     val fraction = if (timer.total == 0) 0f else timer.left.toFloat() / timer.total
     var showPicker by remember { mutableStateOf(false) }
+    var customMinutes by remember { mutableStateOf("25") }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp)
@@ -556,6 +565,10 @@ fun FocusScreen(
             Spacer(Modifier.width(8.dp))
             FilterPill("45 / 10", timer.total == 45 * 60) { onPreset(45) }
         }
+        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(value = customMinutes, onValueChange = { customMinutes = it.filter(Char::isDigit).take(3) }, label = { Text("Durasi (1–180 menit)") }, singleLine = true, modifier = Modifier.weight(1f))
+            FilterPill("Atur", false) { customMinutes.toIntOrNull()?.takeIf { it in 1..180 }?.let(onPreset) }
+        }
 
         Row(
             Modifier.fillMaxWidth().padding(top = 22.dp),
@@ -567,9 +580,9 @@ fun FocusScreen(
             Box(
                 Modifier
                     .size(72.dp)
-                    .shadow(16.dp, CircleShape, clip = false, ambientColor = p.glow, spotColor = p.glow)
+                    .shadow(if (p.pixel) 0.dp else 16.dp, CircleShape, clip = false, ambientColor = p.glow, spotColor = p.glow)
                     .clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(p.gradA, p.gradB)))
+                    .background(if (p.pixel) androidx.compose.ui.graphics.SolidColor(p.scheme.primary) else Brush.linearGradient(listOf(p.gradA, p.gradB)))
                     .clickable { if (timer.running) onPause() else onStart() },
                 contentAlignment = Alignment.Center
             ) {
@@ -661,13 +674,13 @@ fun FocusScreen(
 @Composable
 private fun FocusTaskRow(task: Task?, onPick: () -> Unit, onComplete: () -> Unit) {
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(if (p.pixel) 28.dp else 18.dp)
     Row(
         Modifier
             .fillMaxWidth()
-            .shadow(2.dp, shape, clip = false)
+            .shadow(if (p.pixel) 0.dp else 2.dp, shape, clip = false)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
+            .background(if (p.pixel) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
             .border(1.dp, p.line, shape)
             .clickable(onClick = onPick)
             .padding(horizontal = 14.dp, vertical = 13.dp),
@@ -703,7 +716,7 @@ private fun FocusTaskRow(task: Task?, onPick: () -> Unit, onComplete: () -> Unit
 @Composable
 private fun PickerTaskRow(task: Task, selected: Boolean, onClick: () -> Unit) {
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(if (p.pixel) 24.dp else 14.dp)
     Row(
         Modifier
             .fillMaxWidth()

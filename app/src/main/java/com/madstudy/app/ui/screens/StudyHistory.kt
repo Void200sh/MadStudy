@@ -20,10 +20,11 @@ import com.madstudy.app.data.TimerUi
 import com.madstudy.app.ui.*
 
 @Composable
-fun CheckoutSheet(state: AppState, timer: TimerUi, onCancel: () -> Unit, onSave: (Set<String>) -> Unit) {
+fun CheckoutSheet(state: AppState, timer: TimerUi, onCancel: () -> Unit, onSave: (Set<String>, String) -> Unit) {
     val ids = (state.focusTaskIds + listOfNotNull(state.focusTaskId)).toSet()
     val tasks = state.tasks.filter { it.id in ids }
     var completed by remember { mutableStateOf(tasks.filter { it.done }.map { it.id }.toSet()) }
+    var reflection by remember { mutableStateOf("") }
     AppSheet("Checkout sesi", onCancel) {
         Text("Waktu fokus: ${com.madstudy.app.mmss(timer.total - timer.left)}")
         Text("Centang tugas yang benar-benar selesai. Tugas lainnya tetap bisa dilanjutkan.",
@@ -42,7 +43,9 @@ fun CheckoutSheet(state: AppState, timer: TimerUi, onCancel: () -> Unit, onSave:
             if (tasks.isEmpty()) EmptyHint("Sesi tanpa tugas terpilih tetap dicatat ke Study History.")
         }
         Spacer(Modifier.height(16.dp))
-        PrimaryButton("Simpan ke Study History", onClick = { onSave(completed) })
+        androidx.compose.material3.OutlinedTextField(value = reflection, onValueChange = { reflection = it }, label = { Text("Refleksi (opsional, disimpan ke jurnal)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+        Spacer(Modifier.height(12.dp))
+        PrimaryButton("Simpan ke Study History", onClick = { onSave(completed, reflection) })
         GhostButton("Kembali ke sesi", onClick = onCancel)
     }
 }

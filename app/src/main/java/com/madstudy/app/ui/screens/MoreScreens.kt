@@ -417,15 +417,15 @@ private fun JournalCard(entry: Journal, onDelete: () -> Unit) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(if (p.pixel) 28.dp else 18.dp)
     Column(
         Modifier
             .fillMaxWidth()
-            .shadow(2.dp, shape, clip = false)
+            .shadow(if (p.pixel) 0.dp else 2.dp, shape, clip = false)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, p.line, shape)
-            .padding(14.dp)
+            .background(if (p.pixel) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+            .border(if (p.pixel) 0.dp else 1.dp, p.line, shape)
+            .padding(if (p.pixel) 20.dp else 14.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -637,14 +637,14 @@ fun AchievementsScreen(state: AppState, onBack: () -> Unit) {
 @Composable
 private fun BadgeCard(badge: Badge, modifier: Modifier = Modifier) {
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(if (p.pixel) 28.dp else 18.dp)
     val alpha = if (badge.unlocked) 1f else 0.45f
     Column(
         modifier
             .alpha(alpha)
-            .shadow(2.dp, shape, clip = false)
+            .shadow(if (p.pixel) 0.dp else 2.dp, shape, clip = false)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
+            .background(if (p.pixel) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
             .border(1.dp, if (badge.unlocked) MaterialTheme.colorScheme.primary else p.line, shape)
             .padding(14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -685,14 +685,21 @@ fun SettingsScreen(
     onToggle: (String) -> Unit,
     onGoal: (Int) -> Unit,
     onHistory: () -> Unit,
+    onExam: (String, String) -> Boolean,
     onBack: () -> Unit
 ) {
     var showThemes by remember { mutableStateOf(false) }
+    var showExam by remember { mutableStateOf(false) }
+    var examName by remember(state.settings.examName) { mutableStateOf(state.settings.examName) }
+    var examDate by remember(state.settings.examDate) { mutableStateOf(state.settings.examDate) }
+    var examError by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp)
     ) {
         Box(Modifier.padding(top = 6.dp)) { PageHeader("Pengaturan", onBack = onBack) }
+        Spacer(Modifier.height(16.dp))
+        GhostButton(if (state.settings.examDate.isBlank()) "Atur jadwal ujian" else "${state.settings.examName.ifBlank { "Ujian" }} · ${state.settings.examDate}") { showExam = true }
 
         Spacer(Modifier.height(16.dp))
         AppCard {
@@ -778,6 +785,15 @@ fun SettingsScreen(
                 Spacer(Modifier.height(10.dp))
             }
         }
+    }
+    if (showExam) AppSheet("Jadwal ujian", { showExam = false }) {
+        OutlinedTextField(value = examName, onValueChange = { examName = it }, label = { Text("Nama ujian") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(value = examDate, onValueChange = { examDate = it; examError = false }, label = { Text("Tanggal (YYYY-MM-DD)") }, isError = examError, modifier = Modifier.fillMaxWidth())
+        if (examError) Text("Tanggal belum valid.", color = MaterialTheme.colorScheme.error)
+        Spacer(Modifier.height(12.dp))
+        PrimaryButton("Simpan jadwal", onClick = { if (onExam(examName, examDate)) showExam = false else examError = true })
+        GhostButton("Hapus jadwal") { onExam("", ""); showExam = false }
     }
 }
 

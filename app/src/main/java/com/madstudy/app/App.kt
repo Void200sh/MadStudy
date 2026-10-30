@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -141,7 +142,7 @@ fun MadStudyApp(vm: AppViewModel) {
                             onFinish = vm::finishEarly,
                             onSelectTask = vm::selectFocusTask,
                             onCompleteTask = vm::completeTask,
-                            onCheckout = { ids -> vm.checkout(ids); nav.navigate("study-history") { launchSingleTop = true } },
+                            onCheckout = { ids, reflection -> vm.checkout(ids, reflection); nav.navigate("study-history") { launchSingleTop = true } },
                             onCancelCheckout = vm::cancelCheckout,
                             onOpenHistory = { nav.navigate("study-history") },
                             onOpenTasks = { nav.navigate("tasks") },
@@ -172,7 +173,8 @@ fun MadStudyApp(vm: AppViewModel) {
                             onTheme = vm::setTheme,
                             onToggle = vm::toggleSetting,
                             onGoal = vm::changeGoal,
-                            onHistory = { nav.navigate("study-history") }
+                            onHistory = { nav.navigate("study-history") },
+                            onExam = vm::setExam
                         ) { nav.popBackStack() }
                     }
                     composable("backup") {
@@ -200,6 +202,16 @@ fun MadStudyApp(vm: AppViewModel) {
 
 @Composable
 private fun BottomBar(nav: NavHostController, route: String) {
+    if (LocalPalette.current.pixel) {
+        androidx.compose.material3.NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceVariant, tonalElevation = 0.dp) {
+            tabs.forEach { tab ->
+                NavigationBarItem(selected = route == tab.route,
+                    onClick = { if (route != tab.route) nav.navigate(tab.route) { popUpTo("home"); launchSingleTop = true } },
+                    icon = { Icon(tab.icon, tab.label) }, label = { Text(tab.label) })
+            }
+        }
+        return
+    }
     Column(
         Modifier
             .fillMaxWidth()

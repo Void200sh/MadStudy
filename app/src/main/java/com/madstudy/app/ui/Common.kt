@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.sp
 
 @Composable
@@ -49,6 +50,17 @@ fun AppCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val p = LocalPalette.current
+    if (p.pixel) {
+        androidx.compose.material3.Card(
+            modifier = modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = androidx.compose.material3.CardDefaults.cardColors(
+                containerColor = if (gradient) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurface),
+            elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) { Column(Modifier.padding(20.dp), content = content) }
+        return
+    }
     val shape = MaterialTheme.shapes.medium
     val brush = if (gradient) {
         Brush.linearGradient(
@@ -90,6 +102,12 @@ fun Chip(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun IconBtn(icon: ImageVector, desc: String, onClick: () -> Unit) {
     val p = LocalPalette.current
+    if (p.pixel) {
+        androidx.compose.material3.FilledTonalIconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+            Icon(icon, desc, modifier = Modifier.size(24.dp))
+        }
+        return
+    }
     Box(
         Modifier
             .size(38.dp)
@@ -148,13 +166,13 @@ fun StatTile(value: String, label: String, modifier: Modifier = Modifier) {
 @Composable
 fun BigStat(value: String, label: String, modifier: Modifier = Modifier) {
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(if (p.pixel) 28.dp else 20.dp)
     Column(
         modifier
-            .shadow(2.dp, shape, clip = false)
+            .shadow(if (p.pixel) 0.dp else 2.dp, shape, clip = false)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, p.line, shape)
+            .background(if (p.pixel) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
+            .border(if (p.pixel) 0.dp else 1.dp, p.line, shape)
             .padding(15.dp)
     ) {
         Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
@@ -172,6 +190,14 @@ fun PrimaryButton(
     onClick: () -> Unit
 ) {
     val p = LocalPalette.current
+    if (p.pixel) {
+        androidx.compose.material3.Button(onClick = onClick, enabled = enabled,
+            modifier = modifier.fillMaxWidth().height(56.dp), shape = CircleShape) {
+            if (icon != null) { Icon(icon, null, Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)) }
+            Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        }
+        return
+    }
     val shape = RoundedCornerShape(if (p.pill) 24.dp else 18.dp)
     Row(
         modifier
@@ -198,6 +224,13 @@ fun PrimaryButton(
 @Composable
 fun GhostButton(text: String, onClick: () -> Unit) {
     val p = LocalPalette.current
+    if (p.pixel) {
+        androidx.compose.material3.FilledTonalButton(onClick = onClick,
+            modifier = Modifier.fillMaxWidth().height(52.dp), shape = CircleShape) {
+            Text(text, style = MaterialTheme.typography.labelLarge)
+        }
+        return
+    }
     val shape = RoundedCornerShape(if (p.pill) 22.dp else 16.dp)
     Box(
         Modifier
@@ -252,6 +285,10 @@ fun PageHeader(title: String, subtitle: String? = null, onBack: (() -> Unit)? = 
 @Composable
 fun CheckCircle(done: Boolean, onClick: () -> Unit) {
     val p = LocalPalette.current
+    if (p.pixel) {
+        androidx.compose.material3.Checkbox(checked = done, onCheckedChange = { onClick() }, modifier = Modifier.size(40.dp))
+        return
+    }
     val shape = RoundedCornerShape(7.dp)
     Box(
         Modifier.size(24.dp).clickable(onClick = onClick),
@@ -284,6 +321,10 @@ fun PriorityDot(prio: String) {
 @Composable
 fun ToggleSwitch(checked: Boolean, onChange: () -> Unit) {
     val p = LocalPalette.current
+    if (p.pixel) {
+        androidx.compose.material3.Switch(checked = checked, onCheckedChange = { onChange() })
+        return
+    }
     Box(
         Modifier
             .size(width = 46.dp, height = 27.dp)
@@ -331,6 +372,11 @@ fun EmptyHint(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun FilterPill(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val p = LocalPalette.current
+    if (p.pixel) {
+        androidx.compose.material3.FilterChip(selected = selected, onClick = onClick,
+            label = { Text(text) }, modifier = modifier, shape = RoundedCornerShape(12.dp))
+        return
+    }
     val shape = CircleShape
     Text(
         text,
@@ -382,11 +428,12 @@ fun ActionPill(text: String, onClick: () -> Unit) {
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun AppSheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    val pixel = LocalPalette.current.pixel
     androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = null,
-        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
+        containerColor = if (pixel) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
+        dragHandle = { if (pixel) androidx.compose.material3.BottomSheetDefaults.DragHandle() },
+        shape = RoundedCornerShape(topStart = if (pixel) 32.dp else 26.dp, topEnd = if (pixel) 32.dp else 26.dp)
     ) {
         Column(
             Modifier

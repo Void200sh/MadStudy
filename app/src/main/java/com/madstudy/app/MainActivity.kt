@@ -9,6 +9,7 @@ import android.Manifest
 import android.os.Build
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.madstudy.app.data.AppViewModel
+import com.madstudy.app.data.MusicViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -20,7 +21,8 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             val vm: AppViewModel = viewModel()
-            MadStudyApp(vm)
+            val musicVm: MusicViewModel = viewModel()
+            MadStudyApp(vm, musicVm)
         }
     }
 }

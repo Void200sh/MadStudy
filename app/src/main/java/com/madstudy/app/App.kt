@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBarItem
@@ -48,6 +49,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.madstudy.app.data.AppViewModel
+import com.madstudy.app.data.MusicViewModel
 import com.madstudy.app.data.TimerUi
 import com.madstudy.app.ui.DividerLine
 import com.madstudy.app.ui.LocalPalette
@@ -82,9 +84,10 @@ fun mmss(seconds: Int): String {
 }
 
 @Composable
-fun MadStudyApp(vm: AppViewModel) {
+fun MadStudyApp(vm: AppViewModel, musicVm: MusicViewModel) {
     val state by vm.state.collectAsState()
     val timer by vm.timer.collectAsState()
+    val music by musicVm.ui.collectAsState()
     val palette = paletteById(state.theme)
 
     val view = LocalView.current
@@ -135,21 +138,24 @@ fun MadStudyApp(vm: AppViewModel) {
                         FocusScreen(
                             state = state,
                             timer = timer,
+                            music = music,
                             onStart = vm::startTimer,
                             onPause = vm::pauseTimer,
                             onReset = vm::resetTimer,
                             onPreset = vm::setPreset,
                             onFinish = vm::finishEarly,
+                            onSkipBreak = vm::skipBreak,
                             onSelectTask = vm::selectFocusTask,
                             onCompleteTask = vm::completeTask,
                             onCheckout = { ids, reflection -> vm.checkout(ids, reflection); nav.navigate("study-history") { launchSingleTop = true } },
                             onCancelCheckout = vm::cancelCheckout,
                             onOpenHistory = { nav.navigate("study-history") },
                             onOpenTasks = { nav.navigate("tasks") },
-                            onOpenMusic = { nav.navigate("music") }
+                            onOpenMusic = { nav.navigate("music") },
+                            onToggleMusic = musicVm::toggle
                         )
                     }
-                    composable("music") { MusicScreen() }
+                    composable("music") { MusicScreen(musicVm) }
                     composable("profile") {
                         ProfileScreen(
                             state = state,
@@ -188,10 +194,11 @@ fun MadStudyApp(vm: AppViewModel) {
                     }
                 }
 
-                if (timer.running && route != "focus" && isTab) {
+                if ((timer.running || timer.awaitingCheckout) && route != "focus" && isTab) {
                     MiniTimer(
                         timer = timer,
                         onPause = vm::pauseTimer,
+                        onSkipBreak = vm::skipBreak,
                         modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp)
                     ) { nav.navigate("focus") }
                 }
@@ -269,8 +276,23 @@ private fun BottomBar(nav: NavHostController, route: String) {
 }
 
 @Composable
-private fun MiniTimer(timer: TimerUi, onPause: () -> Unit, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val palette = LocalPalette.current
+private fun MiniTimer(
+    timer: TimerUi,
+    onPause: () -> Unit,
+    onSkipBreak: () -> Unit,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val title = when {
+        timer.awaitingCheckout -> "Sesi selesai"
+        timer.isBreak -> "Waktunya istirahat"
+        else -> "Sesi fokus berjalan"
+    }
+    val subtitle = when {
+        timer.awaitingCheckout -> "Ketuk untuk simpan sesi"
+        timer.isBreak -> "Istirahat ${timer.total / 60} menit · bisa dilewati"
+        else -> "Tetap jalan saat pindah tab"
+    }
     Row(
         modifier
             .fillMaxWidth()
@@ -294,34 +316,49 @@ private fun MiniTimer(timer: TimerUi, onPause: () -> Unit, modifier: Modifier = 
         }
         Column(Modifier.weight(1f)) {
             Text(
-                "Sesi fokus berjalan",
+                title,
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimary
             )
             Text(
-                "Tetap jalan saat pindah tab",
+                subtitle,
                 fontSize = 10.5.sp,
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
             )
         }
         Text(
-            mmss(timer.left),
+            if (timer.awaitingCheckout) "Checkout" else mmss(timer.left),
             color = MaterialTheme.colorScheme.onPrimary,
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp
         )
-        Box(
-            Modifier.size(34.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f))
-                .clickable(onClick = onPause),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Rounded.Pause,
-                contentDescription = "Jeda",
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(13.dp)
-            )
+        when {
+            timer.awaitingCheckout -> Unit
+            timer.isBreak -> Box(
+                Modifier.size(34.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f))
+                    .clickable(onClick = onSkipBreak),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.SkipNext,
+                    contentDescription = "Lewati istirahat",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            else -> Box(
+                Modifier.size(34.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f))
+                    .clickable(onClick = onPause),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.Pause,
+                    contentDescription = "Jeda",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
         }
     }
 }

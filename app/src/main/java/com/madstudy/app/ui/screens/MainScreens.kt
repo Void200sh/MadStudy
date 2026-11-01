@@ -1,8 +1,5 @@
 package com.madstudy.app.ui.screens
 
-import android.content.Intent
-import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -48,8 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,16 +59,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import com.madstudy.app.data.AppState
+import com.madstudy.app.data.MusicUi
+import com.madstudy.app.data.MusicViewModel
 import com.madstudy.app.data.Task
 import com.madstudy.app.data.TimerUi
 import com.madstudy.app.data.streak
@@ -97,7 +91,6 @@ import com.madstudy.app.ui.PrimaryButton
 import com.madstudy.app.ui.PriorityDot
 import com.madstudy.app.ui.SectionTitle
 import com.madstudy.app.ui.StatTile
-import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -499,18 +492,21 @@ private fun AddTaskSheet(onDismiss: () -> Unit, onSave: (String, String, String,
 fun FocusScreen(
     state: AppState,
     timer: TimerUi,
+    music: MusicUi,
     onStart: () -> Unit,
     onPause: () -> Unit,
     onReset: () -> Unit,
     onPreset: (Int) -> Unit,
     onFinish: () -> Unit,
+    onSkipBreak: () -> Unit,
     onSelectTask: (String?) -> Unit,
     onCompleteTask: (String) -> Unit,
     onCheckout: (Set<String>, String) -> Unit,
     onCancelCheckout: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenTasks: () -> Unit,
-    onOpenMusic: () -> Unit
+    onOpenMusic: () -> Unit,
+    onToggleMusic: () -> Unit
 ) {
     val p = LocalPalette.current
     val fraction = if (timer.total == 0) 0f else timer.left.toFloat() / timer.total
@@ -524,7 +520,8 @@ fun FocusScreen(
             Column {
                 Text("Sesi Fokus", style = MaterialTheme.typography.headlineLarge)
                 Text(
-                    "Pomodoro · ${timer.total / 60} menit",
+                    if (timer.isBreak) "Istirahat · ${timer.total / 60} menit"
+                    else "Pomodoro · ${timer.total / 60} menit",
                     fontSize = 12.5.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 3.dp)
@@ -547,7 +544,11 @@ fun FocusScreen(
                         letterSpacing = (-2).sp
                     )
                     Text(
-                        if (timer.running) "Fokus" else "Siap",
+                        when {
+                            timer.isBreak -> "Istirahat"
+                            timer.running -> "Fokus"
+                            else -> "Siap"
+                        },
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.5.sp,
@@ -558,16 +559,18 @@ fun FocusScreen(
             }
         }
 
-        Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.Center) {
-            FilterPill("25 / 5", timer.total == 25 * 60) { onPreset(25) }
-            Spacer(Modifier.width(8.dp))
-            FilterPill("50 / 10", timer.total == 50 * 60) { onPreset(50) }
-            Spacer(Modifier.width(8.dp))
-            FilterPill("45 / 10", timer.total == 45 * 60) { onPreset(45) }
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = customMinutes, onValueChange = { customMinutes = it.filter(Char::isDigit).take(3) }, label = { Text("Durasi (1–180 menit)") }, singleLine = true, modifier = Modifier.weight(1f))
-            FilterPill("Atur", false) { customMinutes.toIntOrNull()?.takeIf { it in 1..180 }?.let(onPreset) }
+        if (!timer.isBreak) {
+            Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.Center) {
+                FilterPill("25 / 5", timer.total == 25 * 60) { onPreset(25) }
+                Spacer(Modifier.width(8.dp))
+                FilterPill("50 / 10", timer.total == 50 * 60) { onPreset(50) }
+                Spacer(Modifier.width(8.dp))
+                FilterPill("45 / 10", timer.total == 45 * 60) { onPreset(45) }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = customMinutes, onValueChange = { customMinutes = it.filter(Char::isDigit).take(3) }, label = { Text("Durasi (1–180 menit)") }, singleLine = true, modifier = Modifier.weight(1f))
+                FilterPill("Atur", false) { customMinutes.toIntOrNull()?.takeIf { it in 1..180 }?.let(onPreset) }
+            }
         }
 
         Row(
@@ -594,43 +597,76 @@ fun FocusScreen(
                 )
             }
             Spacer(Modifier.width(16.dp))
-            RoundButton(Icons.Rounded.SkipNext, "Selesaikan sesi", 52, onFinish)
+            RoundButton(
+                Icons.Rounded.SkipNext,
+                if (timer.isBreak) "Lewati istirahat" else "Selesaikan sesi",
+                52,
+                if (timer.isBreak) onSkipBreak else onFinish
+            )
         }
 
-        SectionTitle("Untuk sesi ini")
-        val selectedIds = (state.focusTaskIds + listOfNotNull(state.focusTaskId)).toSet()
-        val focusTasks = state.tasks.filter { it.id in selectedIds }
-        if (focusTasks.isEmpty()) EmptyHint("Pilih tugas yang ingin dikerjakan selama sesi ini.")
-        focusTasks.forEach { task ->
-            FocusTaskRow(task, onPick = { showPicker = true }, onComplete = { onCompleteTask(task.id) })
+        if (timer.isBreak) {
+            Spacer(Modifier.height(18.dp))
+            AppCard {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("☕", fontSize = 22.sp)
+                    Column(Modifier.weight(1f)) {
+                        Text("Waktunya istirahat", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Istirahat ${timer.total / 60} menit. Mau lanjut lebih cepat? Lewati saja.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 3.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                PrimaryButton("Lewati istirahat", onClick = onSkipBreak)
+            }
+        } else {
+            SectionTitle("Untuk sesi ini")
+            val selectedIds = (state.focusTaskIds + listOfNotNull(state.focusTaskId)).toSet()
+            val focusTasks = state.tasks.filter { it.id in selectedIds }
+            if (focusTasks.isEmpty()) EmptyHint("Pilih tugas yang ingin dikerjakan selama sesi ini.")
+            focusTasks.forEach { task ->
+                FocusTaskRow(task, onPick = { showPicker = true }, onComplete = { onCompleteTask(task.id) })
+                Spacer(Modifier.height(8.dp))
+            }
+            GhostButton("Pilih tugas (${focusTasks.size})") { showPicker = true }
+            Spacer(Modifier.height(10.dp))
+            PrimaryButton("Checkout sesi", onClick = onFinish)
             Spacer(Modifier.height(8.dp))
+            GhostButton("Study History", onClick = onOpenHistory)
         }
-        GhostButton("Pilih tugas (${focusTasks.size})") { showPicker = true }
         Spacer(Modifier.height(10.dp))
-        PrimaryButton("Checkout sesi", onClick = onFinish)
-        Spacer(Modifier.height(8.dp))
-        GhostButton("Study History", onClick = onOpenHistory)
-        Spacer(Modifier.height(10.dp))
-        SelectRow(
-            emoji = "🎵",
-            title = "Musik pengiring",
-            subtitle = "Pilih audio dari tab Music",
+        MusicRow(
+            title = music.current?.title ?: "Belum ada lagu diputar",
+            subtitle = when {
+                music.current == null -> "Pilih audio dari tab Music"
+                music.playing -> "Sedang diputar · lanjut saat pindah tab"
+                else -> "Dijeda · ketuk putar untuk melanjutkan"
+            },
+            playing = music.playing,
+            hasTrack = music.current != null,
+            onToggle = onToggleMusic,
             onClick = onOpenMusic
         )
-        Spacer(Modifier.height(14.dp))
-        AppCard {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("🌱", fontSize = 22.sp)
-                Column(Modifier.weight(1f)) {
-                    Text("Focus Garden", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Selesaikan sesi untuk menumbuhkan tanamanmu",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 3.dp)
-                    )
+        if (!timer.isBreak) {
+            Spacer(Modifier.height(14.dp))
+            AppCard {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("🌱", fontSize = 22.sp)
+                    Column(Modifier.weight(1f)) {
+                        Text("Focus Garden", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Selesaikan sesi untuk menumbuhkan tanamanmu",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 3.dp)
+                        )
+                    }
+                    Chip("Level ${1 + state.sessions.size / 5}")
                 }
-                Chip("Level ${1 + state.sessions.size / 5}")
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -772,7 +808,14 @@ private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, d
 }
 
 @Composable
-private fun SelectRow(emoji: String, title: String, subtitle: String, onClick: () -> Unit) {
+private fun MusicRow(
+    title: String,
+    subtitle: String,
+    playing: Boolean,
+    hasTrack: Boolean,
+    onToggle: () -> Unit,
+    onClick: () -> Unit
+) {
     val p = LocalPalette.current
     val shape = RoundedCornerShape(18.dp)
     Row(
@@ -790,66 +833,47 @@ private fun SelectRow(emoji: String, title: String, subtitle: String, onClick: (
         Box(
             Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
-        ) { Text(emoji, fontSize = 15.sp) }
+        ) { Text("🎵", fontSize = 15.sp) }
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
+            Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                subtitle,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 3.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (hasTrack) {
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .clickable(onClick = onToggle),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (playing) "Jeda musik" else "Putar musik",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
         Text("›", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-fun MusicScreen() {
-    val context = LocalContext.current
-    val player = remember { ExoPlayer.Builder(context).build() }
-    DisposableEffect(Unit) { onDispose { player.release() } }
-
+fun MusicScreen(vm: MusicViewModel) {
+    val tracks by vm.tracks.collectAsState()
+    val music by vm.ui.collectAsState()
     val p = LocalPalette.current
-    val tracks = remember { mutableListOf<Uri>() }
-    var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var current by remember { mutableStateOf<Uri?>(null) }
-    var playing by remember { mutableStateOf(false) }
-    var position by remember { mutableStateOf(0L) }
-    var duration by remember { mutableStateOf(0L) }
-    var shuffle by remember { mutableStateOf(false) }
-    var repeat by remember { mutableStateOf(false) }
-
-    LaunchedEffect(playing) {
-        while (playing) {
-            position = player.currentPosition
-            duration = player.duration.coerceAtLeast(0)
-            playing = player.isPlaying
-            delay(400)
-        }
-    }
-
-    fun playAt(uri: Uri) {
-        current = uri
-        player.setMediaItem(MediaItem.fromUri(uri))
-        player.prepare()
-        player.play()
-        playing = true
-    }
-
-    fun step(delta: Int) {
-        if (tracks.isEmpty()) return
-        val idx = tracks.indexOf(current)
-        val next = ((if (idx < 0) 0 else idx + delta) % tracks.size + tracks.size) % tracks.size
-        playAt(tracks[next])
-    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        uris.forEach { uri ->
-            try {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (_: Exception) {
-            }
-            if (!tracks.contains(uri)) {
-                tracks.add(uri)
-                names = names + (uri.toString() to displayName(context, uri))
-            }
-        }
+        vm.addTracks(uris)
     }
 
     Column(
@@ -876,18 +900,31 @@ fun MusicScreen() {
                     .clip(RoundedCornerShape(26.dp))
                     .background(Brush.linearGradient(listOf(p.gradA, p.gradB, MaterialTheme.colorScheme.primaryContainer))),
                 contentAlignment = Alignment.Center
-            ) { Text("🎧", fontSize = 56.sp) }
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (music.playing) "🎧" else "🎵", fontSize = 56.sp)
+                    if (music.playing) {
+                        Text(
+                            "Sedang diputar",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                }
+            }
 
             Column(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    current?.let { names[it.toString()] ?: "Audio lokal" } ?: "Belum ada lagu diputar",
+                    music.current?.title ?: "Belum ada lagu diputar",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    "Audio dari perangkat",
+                    if (music.current == null) "Tambahkan lagu dari HP-mu" else "Audio dari perangkat",
                     fontSize = 12.5.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 3.dp)
@@ -895,12 +932,12 @@ fun MusicScreen() {
             }
 
             Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(mmss((position / 1000).toInt()), fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(mmss((music.position / 1000).toInt()), fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Box(Modifier.weight(1f).height(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)) {
-                    val f = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                    val f = if (music.duration > 0) (music.position.toFloat() / music.duration).coerceIn(0f, 1f) else 0f
                     Box(Modifier.fillMaxWidth(f).height(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
                 }
-                Text(mmss((duration / 1000).toInt()), fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(mmss((music.duration / 1000).toInt()), fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Row(
@@ -911,16 +948,13 @@ fun MusicScreen() {
                 Icon(
                     Icons.Rounded.Shuffle,
                     contentDescription = "Acak",
-                    modifier = Modifier.size(19.dp).clickable {
-                        shuffle = !shuffle
-                        player.shuffleModeEnabled = shuffle
-                    },
-                    tint = if (shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    modifier = Modifier.size(19.dp).clickable { vm.toggleShuffle() },
+                    tint = if (music.shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Icon(
                     Icons.Rounded.SkipPrevious,
                     contentDescription = "Sebelumnya",
-                    modifier = Modifier.size(22.dp).clickable { step(-1) }
+                    modifier = Modifier.size(22.dp).clickable { vm.step(-1) }
                 )
                 Box(
                     Modifier
@@ -928,18 +962,11 @@ fun MusicScreen() {
                         .shadow(14.dp, CircleShape, clip = false, ambientColor = p.glow, spotColor = p.glow)
                         .clip(CircleShape)
                         .background(Brush.linearGradient(listOf(p.gradA, p.gradB)))
-                        .clickable {
-                            if (current == null) tracks.firstOrNull()?.let { playAt(it) }
-                            else if (player.isPlaying) {
-                                player.pause(); playing = false
-                            } else {
-                                player.play(); playing = true
-                            }
-                        },
+                        .clickable { vm.toggle() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        if (music.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = "Putar",
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(24.dp)
@@ -948,16 +975,13 @@ fun MusicScreen() {
                 Icon(
                     Icons.Rounded.SkipNext,
                     contentDescription = "Berikutnya",
-                    modifier = Modifier.size(22.dp).clickable { step(1) }
+                    modifier = Modifier.size(22.dp).clickable { vm.step(1) }
                 )
                 Icon(
                     Icons.Rounded.Repeat,
                     contentDescription = "Ulangi",
-                    modifier = Modifier.size(19.dp).clickable {
-                        repeat = !repeat
-                        player.repeatMode = if (repeat) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                    },
-                    tint = if (repeat) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    modifier = Modifier.size(19.dp).clickable { vm.toggleRepeat() },
+                    tint = if (music.repeat) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -995,13 +1019,14 @@ fun MusicScreen() {
             if (tracks.isEmpty()) {
                 EmptyHint("Belum ada lagu. Tap + untuk memilih file audio dari HP.")
             } else {
-                tracks.forEachIndexed { index, uri ->
+                tracks.forEachIndexed { index, track ->
                     if (index > 0) DividerLine()
+                    val isCurrent = music.current?.uri == track.uri
                     Row(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable { playAt(uri) }
+                            .clickable { vm.play(track) }
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1014,21 +1039,21 @@ fun MusicScreen() {
                         }
                         Column(Modifier.weight(1f)) {
                             Text(
-                                names[uri.toString()] ?: "Audio",
+                                track.title,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = if (current == uri) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                if (current == uri) "Sedang diputar" else "Tap untuk putar",
+                                if (isCurrent && music.playing) "Sedang diputar" else "Tap untuk putar",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
                         }
-                        if (current == uri && playing) {
+                        if (isCurrent && music.playing) {
                             Icon(Icons.Rounded.Pause, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                         }
                     }
@@ -1036,16 +1061,5 @@ fun MusicScreen() {
             }
         }
         Spacer(Modifier.height(24.dp))
-    }
-}
-
-private fun displayName(context: android.content.Context, uri: Uri): String {
-    return try {
-        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-            val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
-        } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Audio"
-    } catch (e: Exception) {
-        uri.lastPathSegment?.substringAfterLast('/') ?: "Audio"
     }
 }

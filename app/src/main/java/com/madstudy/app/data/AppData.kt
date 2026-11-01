@@ -103,7 +103,7 @@ fun defaultState(): AppState = AppState()
 @Serializable
 data class TimerSnapshot(val total: Int = 1500, val left: Int = 1500,
     val deadline: Long = 0, val running: Boolean = false, val awaitingCheckout: Boolean = false,
-    val isBreak: Boolean = false)
+    val isBreak: Boolean = false, val focusTotal: Int = 1500)
 
 fun Task.due(): LocalDate? = runCatching { LocalDate.parse(dueDate) }.getOrNull()
 fun Task.isToday(): Boolean = due()?.let { it <= LocalDate.now() } ?: (day == "today")
@@ -144,7 +144,14 @@ class AppStore(private val context: Context) {
     }
 }
 
-data class TimerUi(val total: Int = 25 * 60, val left: Int = 25 * 60, val running: Boolean = false, val awaitingCheckout: Boolean = false, val isBreak: Boolean = false)
+data class TimerUi(
+    val total: Int = 25 * 60,
+    val left: Int = 25 * 60,
+    val running: Boolean = false,
+    val awaitingCheckout: Boolean = false,
+    val isBreak: Boolean = false,
+    val focusTotal: Int = 25 * 60
+)
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val store = AppStore(app)
@@ -162,9 +169,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _state.value = migrateState(store.flow.first())
             _state.value.savedTimer?.let { t ->
+                val focusTotal = t.focusTotal.coerceIn(60, 180 * 60)
                 deadline = t.deadline
                 val left = if (t.running) ((deadline - System.currentTimeMillis() + 999) / 1000).toInt().coerceIn(0, t.total) else t.left
-                _timer.value = TimerUi(t.total, left, false, t.awaitingCheckout || (t.running && left == 0 && !t.isBreak), t.isBreak)
+                _timer.value = if (t.isBreak && left <= 0) {
+                    // Istirahat sudah habis saat app ditutup — langsung siap untuk sesi berikutnya.
+                    TimerUi(total = focusTotal, left = focusTotal, focusTotal = focusTotal)
+                } else {
+                    TimerUi(
+                        total = t.total,
+                        left = left,
+                        running = false,
+                        awaitingCheckout = t.awaitingCheckout || (t.running && left == 0 && !t.isBreak),
+                        isBreak = t.isBreak,
+                        focusTotal = focusTotal
+                    )
+                }
                 if (t.running && left > 0) startTimer()
             }
         }
@@ -297,7 +317,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val ids = (_state.value.focusTaskIds + listOfNotNull(_state.value.focusTaskId)).toSet()
         set(_state.value.copy(tasks = _state.value.tasks.map { if (it.id in ids && !it.done) it.copy(inProgress = true) else it }))
         persistTimer()
-        com.madstudy.app.notifications.StudyNotifications.timer(appContext, deadline)
+        com.madstudy.app.notifications.StudyNotifications.timer(appContext, deadline, _timer.value.isBreak)
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while (_timer.value.left > 0) {
@@ -317,34 +337,53 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun resetTimer() {
+        if (_timer.value.isBreak) { skipBreak(); return }
         if (_timer.value.total != _timer.value.left || _timer.value.awaitingCheckout) { finishEarly(); return }
         timerJob?.cancel()
-        _timer.value = TimerUi(total = _timer.value.total, left = _timer.value.total, running = false)
+        _timer.value = TimerUi(total = _timer.value.total, left = _timer.value.total, running = false, focusTotal = _timer.value.focusTotal)
         persistTimer()
     }
 
     fun setPreset(minutes: Int) {
-        if (_timer.value.running || _timer.value.awaitingCheckout || _timer.value.left != _timer.value.total) return
+        if (_timer.value.running || _timer.value.awaitingCheckout || _timer.value.isBreak || _timer.value.left != _timer.value.total) return
         timerJob?.cancel()
         val seconds = minutes.coerceIn(1, 180) * 60
-        _timer.value = TimerUi(total = seconds, left = seconds, running = false)
+        _timer.value = TimerUi(total = seconds, left = seconds, running = false, focusTotal = seconds)
         persistTimer()
     }
 
     fun finishEarly() {
+        if (_timer.value.isBreak) { skipBreak(); return }
         pauseTimer()
         _timer.value = _timer.value.copy(awaitingCheckout = true)
         persistTimer()
     }
 
+    /** Lewati fase istirahat dan kembali siap untuk sesi fokus berikutnya. */
+    fun skipBreak() {
+        if (!_timer.value.isBreak) return
+        timerJob?.cancel()
+        com.madstudy.app.notifications.StudyNotifications.cancelTimer(appContext)
+        val total = _timer.value.focusTotal.coerceIn(60, 180 * 60)
+        _timer.value = TimerUi(total = total, left = total, running = false, focusTotal = total)
+        persistTimer()
+    }
+
     private fun finishTimer() {
         timerJob?.cancel()
-        val wasBreak = _timer.value.isBreak
-        _timer.value = _timer.value.copy(left = 0, running = false, awaitingCheckout = !wasBreak)
-        persistTimer()
         com.madstudy.app.notifications.StudyNotifications.cancelTimer(appContext)
-        if (wasBreak) { _timer.value = TimerUi(); persistTimer() }
+        val t = _timer.value
+        if (t.isBreak) {
+            val total = t.focusTotal.coerceIn(60, 180 * 60)
+            _timer.value = TimerUi(total = total, left = total, running = false, focusTotal = total)
+            persistTimer()
+            return
+        }
+        _timer.value = t.copy(left = 0, running = false, awaitingCheckout = true)
+        persistTimer()
     }
+
+    private fun breakSecondsFor(focusTotal: Int): Int = if (focusTotal >= 45 * 60) 10 * 60 else 5 * 60
 
     fun checkout(completedIds: Set<String>, reflection: String = "") {
         val t = _timer.value
@@ -361,16 +400,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         set(s.copy(tasks = s.tasks.map { if (it.id in ids) it.copy(done = it.done || it.id in completedIds, inProgress = it.id !in completedIds && !it.done) else it },
             sessions = s.sessions + entry, journal = if (journal != null) listOf(journal) + s.journal else s.journal,
             focusTaskId = null, focusTaskIds = emptyList()))
-        _timer.value = if (s.settings.autoBreak) TimerUi(total = 300, left = 300, isBreak = true) else TimerUi(total = t.total, left = t.total)
+        _timer.value = if (s.settings.autoBreak) {
+            val breakSeconds = breakSecondsFor(t.focusTotal)
+            TimerUi(total = breakSeconds, left = breakSeconds, running = false, isBreak = true, focusTotal = t.focusTotal)
+        } else {
+            TimerUi(total = t.focusTotal, left = t.focusTotal, running = false, focusTotal = t.focusTotal)
+        }
         persistTimer()
         if (s.settings.autoBreak) startTimer()
     }
 
-    fun cancelCheckout() { _timer.value = _timer.value.copy(awaitingCheckout = false); persistTimer() }
+    fun cancelCheckout() {
+        val total = _timer.value.focusTotal.coerceIn(60, 180 * 60)
+        _timer.value = TimerUi(total = total, left = total, running = false, focusTotal = total)
+        persistTimer()
+    }
 
     private fun persistTimer() {
         val t = _timer.value
-        set(_state.value.copy(savedTimer = TimerSnapshot(t.total, t.left, deadline, t.running, t.awaitingCheckout, t.isBreak)))
+        set(_state.value.copy(savedTimer = TimerSnapshot(t.total, t.left, deadline, t.running, t.awaitingCheckout, t.isBreak, t.focusTotal)))
     }
 
     /* ---------- backup ---------- */
